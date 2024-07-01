@@ -3,6 +3,9 @@ import { fileCompressedUrl } from "./constants";
 
 const startTime = Date.now();
 
+const pid = process.pid;
+console.log(`PID: ${pid}`);
+
 console.log("Downloading file...");
 const dataZipped = await fetch(fileCompressedUrl)
 
