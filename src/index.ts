@@ -24,7 +24,7 @@ console.log("Saving zip file...");
 await Bun.write(localZipFile, dataZipped)
 
 console.log("Unzipping file...");
-await $`unzip ${localZipFile} -d ${filesDir}`
+await $`unzip ${localZipFile} -d ${filesDir} > /dev/null`
 
 const endTime = Date.now();
 
