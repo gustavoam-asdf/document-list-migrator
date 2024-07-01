@@ -1,1 +1,0 @@
-export const fileCompressedUrl = "http://www2.sunat.gob.pe/padron_reducido_ruc.zip"
