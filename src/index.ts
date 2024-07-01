@@ -1,5 +1,3 @@
-import { Open as OpenZip } from "unzipper";
-
 const remoteZipFile = "http://www2.sunat.gob.pe/padron_reducido_ruc.zip"
 const localZipFile = "./list.zip"
 
@@ -12,12 +10,7 @@ console.log("Downloading file...");
 const dataZipped = await fetch(remoteZipFile)
 
 console.log("Writing file...");
-await Bun.write(localZipFile, dataZipped)
-
-console.log("Unzipping file...");
-const directory = await OpenZip.file(localZipFile)
-await directory.extract({ path: "./" })
-
+await Bun.write("./list.zip", dataZipped)
 
 const endTime = Date.now();
 
