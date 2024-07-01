@@ -1,14 +1,20 @@
 import { $ } from "bun";
-
-const remoteZipFile = "http://www2.sunat.gob.pe/padron_reducido_ruc.zip"
-const filesDir = "./files"
-const localZipFile = `${filesDir}/list.zip`
-const localFile = `${filesDir}/padron_reducido_ruc.txt`
+import fs from "node:fs/promises";
 
 const startTime = Date.now();
 
 const pid = process.pid;
 console.log(`PID: ${pid}`);
+
+const remoteZipFile = "http://www2.sunat.gob.pe/padron_reducido_ruc.zip"
+const rootDir = process.cwd()
+const filesDir = `${rootDir}/files`
+
+await fs.rmdir(filesDir, { recursive: true })
+await fs.mkdir(filesDir, { recursive: true })
+
+const localZipFile = `${filesDir}/list.zip`
+const localFile = `${filesDir}/padron_reducido_ruc.txt`
 
 console.log("Downloading file...");
 const dataZipped = await fetch(remoteZipFile)
