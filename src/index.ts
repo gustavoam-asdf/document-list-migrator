@@ -1,8 +1,9 @@
-import { unzip } from "fflate";
+import { $ } from "bun";
 
 const remoteZipFile = "http://www2.sunat.gob.pe/padron_reducido_ruc.zip"
-const localZipFile = "./list.zip"
-const localFile = "./list.txt"
+const filesDir = "./files"
+const localZipFile = `${filesDir}/list.zip`
+const localFile = `${filesDir}/padron_reducido_ruc.txt`
 
 const startTime = Date.now();
 
@@ -11,25 +12,14 @@ console.log(`PID: ${pid}`);
 
 console.log("Downloading file...");
 const dataZipped = await fetch(remoteZipFile)
-	.then(res => res.arrayBuffer())
-	.then(data => new Uint8Array(data))
+
+console.log("Saving zip file...");
+await Bun.write(localZipFile, dataZipped)
 
 console.log("Unzipping file...");
-unzip(dataZipped, { filter: (file) => file.name.endsWith(".txt") }, async (err, unzipped) => {
-	if (err) {
-		console.error(err);
-		return;
-	}
+await $`unzip ${localZipFile} -d ${filesDir}`
 
-	console.log(unzipped);
-	console.log("Writing file...");
+const endTime = Date.now();
 
-	const file = unzipped[0];
-
-	await Bun.write(localFile, file.buffer);
-
-	const endTime = Date.now();
-
-	console.log(`Done in ${endTime - startTime}ms`);
-})
+console.log(`Done in ${endTime - startTime}ms`);
 
