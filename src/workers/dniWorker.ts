@@ -2,7 +2,7 @@ import { sql } from "../db";
 import { TextDecoderStream } from "../polifylls";
 import { LineGrouper } from "../transformers/LineGrouper";
 import { LineSplitter } from "../transformers/LineSplitter";
-import { Readable, Writable } from "node:stream";
+import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 
 // prevents TS errors
