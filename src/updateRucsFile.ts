@@ -32,7 +32,21 @@ export async function updateRucsFile() {
 				return;
 			}
 
-			dnisWriter.write(line + "\n");
+			const firstPipeCharacter = line.indexOf('|');
+
+			if (firstPipeCharacter === -1) {
+				return;
+			}
+
+			const secondPipeCharacter = line.indexOf('|', firstPipeCharacter + 1);
+
+			if (secondPipeCharacter === -1) {
+				return;
+			}
+
+			const personLine = line.slice(0, secondPipeCharacter + 1);
+
+			dnisWriter.write(personLine + "\n");
 		},
 		close() {
 			dnisWriter.end();
