@@ -27,6 +27,12 @@ dniWorker.addEventListener("message", (message) => {
 	})
 })
 
+dniWorker.addEventListener("error", (message) => {
+	console.error({
+		dniMessage: message
+	})
+})
+
 const rucWorker = new Worker(new URL("./workers/rucWorker.ts", import.meta.url), {
 	type: "module",
 	name: "rucWorker",
@@ -40,6 +46,11 @@ rucWorker.addEventListener("message", (message) => {
 	})
 })
 
+rucWorker.addEventListener("error", (message) => {
+	console.error({
+		rucMessage: message
+	})
+})
 
 const endTime = Date.now();
 
