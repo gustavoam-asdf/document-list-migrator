@@ -1,5 +1,5 @@
 import { TextDecoderStream } from "./polifylls";
-import { localFile } from "./constants";
+import { filesDir, localFile } from "./constants";
 import { updateRucsFile } from "./updateRucsFile";
 
 const startTime = Date.now();
@@ -37,26 +37,30 @@ class LineSplitter implements Transformer<string, string> {
 	}
 }
 
-const rucsPipeStream = new TransformStream<string, string>();
-const ruc10PipeStream = new TransformStream<string, string>();
+const rucsFile = Bun.file(`${filesDir}/rucs.txt`);
+const dnisFile = Bun.file(`${filesDir}/dnis.txt`);
+
+const rucsWriter = rucsFile.writer({
+	highWaterMark: 1024 * 1024,
+});
+const dnisWriter = dnisFile.writer({
+	highWaterMark: 1024 * 1024,
+});
 
 const classifierStream = new WritableStream<string>({
 	write(line) {
 		const isRuc10 = line.startsWith('10');
 		if (!isRuc10) {
-			const rucsWriter = rucsPipeStream.writable.getWriter();
-			rucsWriter.write(line);
-			rucsWriter.releaseLock();
+			rucsWriter.write(line + "\n");
 			return;
 		}
 
-		const rucsWriter = rucsPipeStream.writable.getWriter();
-		const ruc10Writer = ruc10PipeStream.writable.getWriter();
-		rucsWriter.write(line);
-		ruc10Writer.write(line);
-
-		rucsWriter.releaseLock();
-		ruc10Writer.releaseLock();
+		rucsWriter.write(line + "\n");
+		dnisWriter.write(line + "\n");
+	},
+	close() {
+		rucsWriter.end();
+		dnisWriter.end();
 	}
 });
 
@@ -66,25 +70,6 @@ fileStream
 	.pipeThrough(decoderStream)
 	.pipeThrough(lineTransformStream)
 	.pipeTo(classifierStream);
-
-const rucsStream = rucsPipeStream.readable;
-const ruc10Stream = ruc10PipeStream.readable;
-
-async function readGeneralRuc() {
-	const worker = new Worker("./src/rucWorker.ts");
-	for await (const ruc of rucsStream) {
-		worker.postMessage(ruc);
-	}
-}
-
-async function readRuc10() {
-	const worker = new Worker("./src/dniWorker.ts");
-	for await (const ruc10 of ruc10Stream) {
-		worker.postMessage(ruc10);
-	}
-}
-
-await Promise.all([readGeneralRuc(), readRuc10()]);
 
 const endTime = Date.now();
 
