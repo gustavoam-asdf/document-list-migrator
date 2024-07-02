@@ -37,6 +37,27 @@ class LineSplitter implements Transformer<string, string> {
 	}
 }
 
+class LineGrouper implements Transformer<string, string[]> {
+	private buffer: string[];
+	constructor(protected size: number) {
+		this.buffer = [];
+	}
+
+	transform(chunk: string, controller: TransformStreamDefaultController<string[]>) {
+		this.buffer.push(chunk);
+		if (this.buffer.length >= this.size) {
+			controller.enqueue(this.buffer);
+			this.buffer = [];
+		}
+	}
+
+	flush(controller: TransformStreamDefaultController<string[]>) {
+		if (this.buffer.length > 0) {
+			controller.enqueue(this.buffer);
+		}
+	}
+}
+
 const rucsPipeStream = new TransformStream<string, string>();
 const ruc10PipeStream = new TransformStream<string, string>();
 
@@ -61,14 +82,21 @@ const classifierStream = new WritableStream<string>({
 });
 
 const lineTransformStream = new TransformStream(new LineSplitter);
+const lineGrouperStream = new TransformStream(new LineGrouper(100));
 
 fileStream
 	.pipeThrough(decoderStream)
 	.pipeThrough(lineTransformStream)
 	.pipeTo(classifierStream);
 
-const rucsStream = rucsPipeStream.readable;
-const ruc10Stream = ruc10PipeStream.readable;
+console.log("Streams created");
+
+const rucsStream = rucsPipeStream
+	.readable
+	.pipeThrough(lineGrouperStream);
+const ruc10Stream = ruc10PipeStream
+	.readable
+	.pipeThrough(lineGrouperStream);
 
 async function readGeneralRuc() {
 	const worker = new Worker("./src/rucWorker.ts");
