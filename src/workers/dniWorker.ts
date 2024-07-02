@@ -15,6 +15,7 @@ async function retryToInsert(lines: string[], error: Error) {
 	if (partLength < 10) {
 		console.error({
 			error,
+			lines,
 			personas: lines.map(line => {
 				const [dni, nombreCompleto] = line.trim().split("\t")
 
