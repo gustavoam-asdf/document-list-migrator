@@ -12,6 +12,7 @@
 		"typescript": "5.5.2"
 	},
 	"dependencies": {
-		"fflate": "^0.8.2"
+		"fflate": "0.8.2",
+		"postgres": "3.4.4"
 	}
 }
