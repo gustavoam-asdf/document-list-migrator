@@ -1,38 +1,12 @@
+import { sql } from "../db";
 import { TextDecoderStream } from "../polifylls";
 import { LineGrouper } from "../transformers/LineGrouper";
 import { LineSplitter } from "../transformers/LineSplitter";
+import { Readable, } from "node:stream";
+import { pipeline } from "node:stream/promises";
 
 // prevents TS errors
 declare var self: Worker;
-
-enum EstadoContribuyente {
-	ACTIVO = "ACTIVO",
-	SUSPENSION_TEMPORAL = "SUSPENSION TEMPORAL",
-	BAJA_PROVISIONAL = "BAJA PROVISIONAL",
-	BAJA_DEFINITIVA = "BAJA DEFINITIVA",
-	BAJA_PROVISIONAL_DE_OFICIO = "BAJA PROV. POR OFICI",
-	BAJA_DEFINITIVA_DE_OFICIO = "BAJA DEFINITIVA DE OFICIO"
-}
-
-interface PersonaJuridica {
-	ruc: string
-	razonSocial: string
-	estado: EstadoContribuyente
-	condicionDomicilio: string
-	codigoUbigeo?: string
-	direccion: {
-		tipoVia?: string
-		nombreVia?: string
-		codigoZona?: string
-		tipoZona?: string
-		numero?: string
-		interior?: string
-		lote?: string
-		departamento?: string
-		manzana?: string
-		kilometro?: string
-	}
-}
 
 self.onmessage = async (event: MessageEvent<string>) => {
 	self.postMessage("RUC worker started");
@@ -42,7 +16,7 @@ self.onmessage = async (event: MessageEvent<string>) => {
 
 	const decoderStream = new TextDecoderStream("latin1")
 	const lineTransformStream = new TransformStream(new LineSplitter);
-	const lineGroupTransformStream = new TransformStream(new LineGrouper(100000));
+	const lineGroupTransformStream = new TransformStream(new LineGrouper(10000));
 
 	const rucsStream = fileStream
 		.pipeThrough(decoderStream)
@@ -50,10 +24,11 @@ self.onmessage = async (event: MessageEvent<string>) => {
 		.pipeThrough(lineGroupTransformStream)
 
 	for await (const lines of rucsStream) {
+		const personaLines: string[] = []
 		for (const line of lines) {
 			const [
 				ruc,
-				nombreRazonSocial,
+				razonSocial,
 				estado,
 				condicionDomicilio,
 				ubigeo,
@@ -72,9 +47,77 @@ self.onmessage = async (event: MessageEvent<string>) => {
 				.map(value => {
 					const trimmed = value.trim()
 
-					return trimmed === "" || trimmed === "-" ? undefined : trimmed
+					return (trimmed === "" || trimmed === "-") ? undefined : trimmed
 				})
+
+			if (!ruc || !razonSocial || !estado) {
+				continue
+			}
+
+			const isRUC10 = ruc.startsWith("10")
+
+			const nTipoVia = isRUC10 ? (tipoVia ?? '\\N') : '\\N'
+			const nNombreVia = isRUC10 ? (nombreVia ?? '\\N') : '\\N'
+			const nCodigoZona = isRUC10 ? (codigoZona ?? '\\N') : '\\N'
+			const nTipoZona = isRUC10 ? (tipoZona ?? '\\N') : '\\N'
+			const nNumero = isRUC10 ? (numero ?? '\\N') : '\\N'
+			const nInterior = isRUC10 ? (interior ?? '\\N') : '\\N'
+			const nLote = isRUC10 ? (lote ?? '\\N') : '\\N'
+			const nDepartamento = isRUC10 ? (departamento ?? '\\N') : '\\N'
+			const nManzana = isRUC10 ? (manzana ?? '\\N') : '\\N'
+			const nKilometro = isRUC10 ? (kilometro ?? '\\N') : '\\N'
+			const nCodigoUbigeo = isRUC10 ? (ubigeo ?? '\\N') : '\\N'
+
+
+			personaLines.push(`${ruc}\t${razonSocial}\t${estado}\t${condicionDomicilio}\t${nTipoVia}\t${nNombreVia}\t${nCodigoZona}\t${nTipoZona}\t${nNumero}\t${nInterior}\t${nLote}\t${nDepartamento}\t${nManzana}\t${nKilometro}\t${nCodigoUbigeo}\n`)
 		}
+
+		const readable = Readable.from(personaLines)
+		const queryStream = await sql`
+			COPY "PersonaJuridica" ("ruc", "razonSocial", "estado", "condicionDomicilio", "tipoVia", "nombreVia", "codigoZona", "tipoZona", "numero", "interior", "lote", "departamento", "manzana", "kilometro", "codigoUbigeo") FROM STDIN
+		`.writable()
+
+		await pipeline(readable, queryStream)
+			.catch(error => console.error({
+				error,
+				personas: personaLines.map(line => {
+					const [
+						ruc,
+						razonSocial,
+						estado,
+						condicionDomicilio,
+						tipoVia,
+						nombreVia,
+						codigoZona,
+						tipoZona,
+						numero,
+						interior,
+						lote,
+						departamento,
+						manzana,
+						kilometro,
+						codigoUbigeo,
+					] = line.trim().split("\t")
+
+					return {
+						ruc,
+						razonSocial,
+						estado,
+						condicionDomicilio,
+						tipoVia,
+						nombreVia,
+						codigoZona,
+						tipoZona,
+						numero,
+						interior,
+						lote,
+						departamento,
+						manzana,
+						kilometro,
+						codigoUbigeo,
+					}
+				})
+			}))
 	}
 
 	self.postMessage("RUC worker done");
