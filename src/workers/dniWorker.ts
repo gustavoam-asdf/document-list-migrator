@@ -8,12 +8,6 @@ import { pipeline } from "node:stream/promises";
 // prevents TS errors
 declare var self: Worker;
 
-interface PersonaNatural {
-	dni: string
-	nombreCompleto: string
-}
-
-
 self.onmessage = async (event: MessageEvent<string>) => {
 	self.postMessage("DNI worker started");
 	const dniFilePath = event.data
@@ -56,7 +50,17 @@ self.onmessage = async (event: MessageEvent<string>) => {
 		const queryStream = await sql`COPY "PersonaNatural" ("dni", "nombreCompleto") FROM STDIN`.writable()
 
 		await pipeline(readable, queryStream)
-			.catch(console.error)
+			.catch(error => console.error({
+				error,
+				personas: personaLines.map(line => {
+					const [dni, nombreCompleto] = line.trim().split("\t")
+
+					return {
+						dni,
+						nombreCompleto,
+					}
+				})
+			}))
 	}
 
 	self.postMessage("DNI worker done");
