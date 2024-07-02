@@ -1,14 +1,14 @@
 {
-  "name": "document-list-migrator",
-  "module": "src/index.ts",
-  "type": "module",
-  "devDependencies": {
-    "@types/bun": "latest"
-  },
-  "peerDependencies": {
-    "typescript": "5.5.2"
-  },
-  "dependencies": {
-    "fflate": "^0.8.2"
-  }
+	"name": "document-list-migrator",
+	"module": "src/index.ts",
+	"type": "module",
+	"devDependencies": {
+		"@types/bun": "latest"
+	},
+	"peerDependencies": {
+		"typescript": "5.5.2"
+	},
+	"dependencies": {
+		"fflate": "^0.8.2"
+	}
 }
