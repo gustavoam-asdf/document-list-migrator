@@ -39,7 +39,7 @@ async function retryToInsert(lines: string[], error: Error) {
 }
 
 self.onmessage = async (event: MessageEvent<string>) => {
-	self.postMessage("DNI worker started");
+	console.log("DNI worker started");
 	const dniFilePath = event.data
 	const file = Bun.file(dniFilePath)
 	const fileStream = file.stream()

@@ -70,7 +70,7 @@ async function retryToInsert(lines: string[], error: Error) {
 }
 
 self.onmessage = async (event: MessageEvent<string>) => {
-	self.postMessage("RUC worker started");
+	console.log("RUC worker started");
 	const rucFilePath = event.data
 	const file = Bun.file(rucFilePath)
 	const fileStream = file.stream()
