@@ -1,4 +1,5 @@
 import { TextDecoderStream } from "../polifylls";
+import { LineGrouper } from "../transformers/LineGrouper";
 import { LineSplitter } from "../transformers/LineSplitter";
 
 // prevents TS errors
@@ -12,13 +13,17 @@ self.onmessage = async (event: MessageEvent<string>) => {
 
 	const decoderStream = new TextDecoderStream("latin1")
 	const lineTransformStream = new TransformStream(new LineSplitter);
+	const lineGroupTransformStream = new TransformStream(new LineGrouper(100000));
 
 	const dnisStream = fileStream
 		.pipeThrough(decoderStream)
 		.pipeThrough(lineTransformStream)
+		.pipeThrough(lineGroupTransformStream)
 
-	for await (const line of dnisStream) {
-		console.log(`DNI: ${line}`);
+	for await (const lines of dnisStream) {
+		console.log({
+			dnis: lines
+		});
 	}
 
 	self.postMessage("DNI worker done");
