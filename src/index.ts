@@ -42,13 +42,41 @@ class LineSplitter implements Transformer<string, string> {
 	}
 }
 
+const rucsPipeStream = new TransformStream<string, string>();
+const ruc10PipeStream = new TransformStream<string, string>();
+
+const classifierStream = new WritableStream<string>({
+	write(line) {
+		const isRuc10 = line.startsWith('10');
+		if (!isRuc10) {
+			const rucsWriter = rucsPipeStream.writable.getWriter();
+			rucsWriter.write(line);
+			rucsWriter.releaseLock();
+			return;
+		}
+
+		const rucsWriter = rucsPipeStream.writable.getWriter();
+		const ruc10Writer = ruc10PipeStream.writable.getWriter();
+		rucsWriter.write(line);
+		ruc10Writer.write(line);
+
+		rucsWriter.releaseLock();
+		ruc10Writer.releaseLock();
+	}
+});
+
 const lineTransformStream = new TransformStream(new LineSplitter);
 
-const lineStream = fileStream
+fileStream
 	.pipeThrough(decoderStream)
 	.pipeThrough(lineTransformStream)
+	.pipeTo(classifierStream);
 
-for await (const line of lineStream) {
-	console.log(line.toString());
-	console.log('---');
+const rucsStream = rucsPipeStream.readable;
+const ruc10Stream = ruc10PipeStream.readable;
+
+for await (const ruc of ruc10Stream) {
+	if (!ruc.startsWith('10')) {
+		console.log(ruc);
+	}
 }
