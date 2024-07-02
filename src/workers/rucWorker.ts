@@ -1,5 +1,6 @@
 import { sql } from "../db";
 import { TextDecoderStream } from "../polifylls";
+import { splitInParts } from "../splitInParts";
 import { LineGrouper } from "../transformers/LineGrouper";
 import { LineSplitter } from "../transformers/LineSplitter";
 import { Readable, } from "node:stream";
@@ -7,6 +8,68 @@ import { pipeline } from "node:stream/promises";
 
 // prevents TS errors
 declare var self: Worker;
+
+function lineToPerson(line: string) {
+	const [
+		ruc,
+		razonSocial,
+		estado,
+		condicionDomicilio,
+		tipoVia,
+		nombreVia,
+		codigoZona,
+		tipoZona,
+		numero,
+		interior,
+		lote,
+		departamento,
+		manzana,
+		kilometro,
+		codigoUbigeo,
+	] = line.trim().split("\t")
+
+	return {
+		ruc,
+		razonSocial,
+		estado,
+		condicionDomicilio,
+		tipoVia,
+		nombreVia,
+		codigoZona,
+		tipoZona,
+		numero,
+		interior,
+		lote,
+		departamento,
+		manzana,
+		kilometro,
+		codigoUbigeo,
+	}
+}
+
+async function retryToInsert(lines: string[], error: Error) {
+	const decimalPartLength = Math.floor(lines.length / 10)
+
+	if (decimalPartLength < 10) {
+		console.error({
+			error,
+			personas: lines.map(lineToPerson),
+		})
+		return
+	}
+
+	const parts = splitInParts({ values: lines, size: decimalPartLength })
+
+	for (const part of parts) {
+		const readable = Readable.from(part)
+		const queryStream = await sql`
+			COPY "PersonaJuridica" ("ruc", "razonSocial", "estado", "condicionDomicilio", "tipoVia", "nombreVia", "codigoZona", "tipoZona", "numero", "interior", "lote", "departamento", "manzana", "kilometro", "codigoUbigeo") FROM STDIN
+		`.writable()
+
+		await pipeline(readable, queryStream)
+			.catch(error => retryToInsert(part, error))
+	}
+}
 
 self.onmessage = async (event: MessageEvent<string>) => {
 	self.postMessage("RUC worker started");
@@ -78,46 +141,7 @@ self.onmessage = async (event: MessageEvent<string>) => {
 		`.writable()
 
 		await pipeline(readable, queryStream)
-			.catch(error => console.error({
-				error,
-				personas: personaLines.map(line => {
-					const [
-						ruc,
-						razonSocial,
-						estado,
-						condicionDomicilio,
-						tipoVia,
-						nombreVia,
-						codigoZona,
-						tipoZona,
-						numero,
-						interior,
-						lote,
-						departamento,
-						manzana,
-						kilometro,
-						codigoUbigeo,
-					] = line.trim().split("\t")
-
-					return {
-						ruc,
-						razonSocial,
-						estado,
-						condicionDomicilio,
-						tipoVia,
-						nombreVia,
-						codigoZona,
-						tipoZona,
-						numero,
-						interior,
-						lote,
-						departamento,
-						manzana,
-						kilometro,
-						codigoUbigeo,
-					}
-				})
-			}))
+			.catch(async error => retryToInsert(personaLines, error))
 	}
 
 	self.postMessage("RUC worker done");
