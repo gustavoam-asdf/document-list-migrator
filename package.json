@@ -2,6 +2,9 @@
 	"name": "document-list-migrator",
 	"module": "src/index.ts",
 	"type": "module",
+	"scripts": {
+		"dev": "bun ./src/index.ts"
+	},
 	"devDependencies": {
 		"@types/bun": "latest"
 	},
