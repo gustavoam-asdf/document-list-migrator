@@ -14,6 +14,23 @@ const {
 	rucsPath: `${filesDir}/padron_reducido_ruc.txt`,
 }; //await updateRucsFile();
 
+type WorkerStatus = {
+	isDone: true;
+	endAt: number;
+} | {
+	isDone: false;
+	endAt: null;
+}
+
+let dniStatus: WorkerStatus = {
+	isDone: false,
+	endAt: null,
+};
+let rucStatus: WorkerStatus = {
+	isDone: false,
+	endAt: null,
+};
+
 const dniWorker = new Worker(new URL("./workers/dniWorker.ts", import.meta.url), {
 	type: "module",
 	name: "dniWorker",
@@ -25,6 +42,17 @@ dniWorker.addEventListener("message", (message) => {
 	console.log({
 		dniMessage: message
 	})
+	dniStatus = {
+		isDone: true,
+		endAt: Date.now(),
+	};
+
+	if (dniStatus.isDone && rucStatus.isDone) {
+		const endTime = Date.now();
+		console.log(`Done DNI in ${dniStatus.endAt - startTime}ms`);
+		console.log(`Done RUC in ${rucStatus.endAt - startTime}ms`);
+		console.log(`Done all in ${endTime - startTime}ms`);
+	}
 })
 
 dniWorker.addEventListener("error", (message) => {
@@ -44,6 +72,18 @@ rucWorker.addEventListener("message", (message) => {
 	console.log({
 		rucMessage: message
 	})
+
+	rucStatus = {
+		isDone: true,
+		endAt: Date.now(),
+	};
+
+	if (dniStatus.isDone && rucStatus.isDone) {
+		const endTime = Date.now();
+		console.log(`Done DNI in ${dniStatus.endAt - startTime}ms`);
+		console.log(`Done RUC in ${rucStatus.endAt - startTime}ms`);
+		console.log(`Done all in ${endTime - startTime}ms`);
+	}
 })
 
 rucWorker.addEventListener("error", (message) => {
@@ -51,7 +91,3 @@ rucWorker.addEventListener("error", (message) => {
 		rucMessage: message
 	})
 })
-
-const endTime = Date.now();
-
-console.log(`Done in ${endTime - startTime}ms`);
