@@ -57,6 +57,12 @@ async function retryToInsert(lines: string[], error: Error) {
 		return
 	}
 
+	console.error({
+		error,
+		lines: lines.length,
+		message: "Retrying to insert RUCs"
+	})
+
 	const parts = splitInParts({ values: lines, size: partLength })
 
 	for (const part of parts) {
@@ -73,6 +79,8 @@ async function retryToInsert(lines: string[], error: Error) {
 self.onmessage = async (event: MessageEvent<string>) => {
 	console.log("RUC worker started");
 	const rucFilePath = event.data
+
+	console.log("Reading RUC file");
 	const file = Bun.file(rucFilePath)
 	const fileStream = file.stream()
 
@@ -85,6 +93,7 @@ self.onmessage = async (event: MessageEvent<string>) => {
 		.pipeThrough(lineTransformStream)
 		.pipeThrough(lineGroupTransformStream)
 
+	console.log("Inserting RUCs");
 	for await (const lines of rucsStream) {
 		const personaLines: string[] = []
 		for (const line of lines) {

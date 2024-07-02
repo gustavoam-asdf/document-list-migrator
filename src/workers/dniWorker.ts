@@ -28,6 +28,12 @@ async function retryToInsert(lines: string[], error: Error) {
 		return
 	}
 
+	console.error({
+		error,
+		lines: lines.length,
+		message: "Retrying to insert DNIs"
+	})
+
 	const parts = splitInParts({ values: lines, size: partLength })
 
 	for (const part of parts) {
