@@ -1,6 +1,8 @@
 import { TextDecoderStream } from "./polifylls";
 import { localFile } from "./constants";
 import { updateRucsFile } from "./updateRucsFile";
+import { LineSplitter } from "./transformers/LineSplitter";
+import { LineGrouper } from "./transformers/LineGrouper";
 
 const startTime = Date.now();
 
@@ -13,50 +15,6 @@ const file = Bun.file(localFile)
 const fileStream = file.stream()
 
 const decoderStream = new TextDecoderStream("latin1")
-
-class LineSplitter implements Transformer<string, string> {
-	private buffer: string;
-
-	constructor() {
-		this.buffer = '';
-	}
-
-	transform(chunk: string, controller: TransformStreamDefaultController<string>) {
-		this.buffer += chunk;
-		let lines = this.buffer.split('\n');
-		this.buffer = lines.pop() || ''; // Guardar el último fragmento para la próxima chunk
-		for (let line of lines) {
-			controller.enqueue(line);
-		}
-	}
-
-	flush(controller: TransformStreamDefaultController<string>) {
-		if (this.buffer) {
-			controller.enqueue(this.buffer);
-		}
-	}
-}
-
-class LineGrouper implements Transformer<string, string[]> {
-	private buffer: string[];
-	constructor(protected size: number) {
-		this.buffer = [];
-	}
-
-	transform(chunk: string, controller: TransformStreamDefaultController<string[]>) {
-		this.buffer.push(chunk);
-		if (this.buffer.length >= this.size) {
-			controller.enqueue(this.buffer);
-			this.buffer = [];
-		}
-	}
-
-	flush(controller: TransformStreamDefaultController<string[]>) {
-		if (this.buffer.length > 0) {
-			controller.enqueue(this.buffer);
-		}
-	}
-}
 
 const rucsPipeStream = new TransformStream<string, string>();
 const ruc10PipeStream = new TransformStream<string, string>();
