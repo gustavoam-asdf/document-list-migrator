@@ -9,51 +9,49 @@ import { pipeline } from "node:stream/promises";
 // prevents TS errors
 declare var self: Worker;
 
-function lineToPerson(line: string) {
-	const [
-		ruc,
-		razonSocial,
-		estado,
-		condicionDomicilio,
-		tipoVia,
-		nombreVia,
-		codigoZona,
-		tipoZona,
-		numero,
-		interior,
-		lote,
-		departamento,
-		manzana,
-		kilometro,
-		codigoUbigeo,
-	] = line.trim().split("\t")
-
-	return {
-		ruc,
-		razonSocial,
-		estado,
-		condicionDomicilio,
-		tipoVia,
-		nombreVia,
-		codigoZona,
-		tipoZona,
-		numero,
-		interior,
-		lote,
-		departamento,
-		manzana,
-		kilometro,
-		codigoUbigeo,
-	}
-}
-
 async function retryToInsert(lines: string[], error: Error) {
 	const decimalPartLength = Math.floor(lines.length / 10)
 
 	if (decimalPartLength < 10) {
 		console.error({
 			error,
-			personas: lines.map(lineToPerson),
+			personas: lines.map(line => {
+				const [
+					ruc,
+					razonSocial,
+					estado,
+					condicionDomicilio,
+					tipoVia,
+					nombreVia,
+					codigoZona,
+					tipoZona,
+					numero,
+					interior,
+					lote,
+					departamento,
+					manzana,
+					kilometro,
+					codigoUbigeo,
+				] = line.trim().split("\t")
+
+				return {
+					ruc,
+					razonSocial,
+					estado,
+					condicionDomicilio,
+					tipoVia,
+					nombreVia,
+					codigoZona,
+					tipoZona,
+					numero,
+					interior,
+					lote,
+					departamento,
+					manzana,
+					kilometro,
+					codigoUbigeo,
+				}
+			}),
 		})
 		return
 	}

@@ -1,5 +1,6 @@
 import { sql } from "../db";
 import { TextDecoderStream } from "../polifylls";
+import { splitInParts } from "../splitInParts";
 import { LineGrouper } from "../transformers/LineGrouper";
 import { LineSplitter } from "../transformers/LineSplitter";
 import { Readable } from "node:stream";
@@ -7,6 +8,35 @@ import { pipeline } from "node:stream/promises";
 
 // prevents TS errors
 declare var self: Worker;
+
+async function retryToInsert(lines: string[], error: Error) {
+	const decimalPartLength = Math.floor(lines.length / 10)
+
+	if (decimalPartLength < 10) {
+		console.error({
+			error,
+			personas: lines.map(line => {
+				const [dni, nombreCompleto] = line.trim().split("\t")
+
+				return {
+					dni,
+					nombreCompleto,
+				}
+			}),
+		})
+		return
+	}
+
+	const parts = splitInParts({ values: lines, size: decimalPartLength })
+
+	for (const part of parts) {
+		const readable = Readable.from(part)
+		const queryStream = await sql`COPY "PersonaNatural" ("dni", "nombreCompleto") FROM STDIN`.writable()
+
+		await pipeline(readable, queryStream)
+			.catch(error => retryToInsert(part, error))
+	}
+}
 
 self.onmessage = async (event: MessageEvent<string>) => {
 	self.postMessage("DNI worker started");
@@ -50,17 +80,7 @@ self.onmessage = async (event: MessageEvent<string>) => {
 		const queryStream = await sql`COPY "PersonaNatural" ("dni", "nombreCompleto") FROM STDIN`.writable()
 
 		await pipeline(readable, queryStream)
-			.catch(error => console.error({
-				error,
-				personas: personaLines.map(line => {
-					const [dni, nombreCompleto] = line.trim().split("\t")
-
-					return {
-						dni,
-						nombreCompleto,
-					}
-				})
-			}))
+			.catch(error => retryToInsert(personaLines, error))
 	}
 
 	self.postMessage("DNI worker done");
