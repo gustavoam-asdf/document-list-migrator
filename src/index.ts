@@ -40,7 +40,7 @@ class LineSplitter implements Transformer<string, string> {
 const dnisFile = Bun.file(`${filesDir}/dnis.txt`);
 
 const dnisWriter = dnisFile.writer({
-	highWaterMark: 1024 * 1024,
+	highWaterMark: 1024 * 1024 * 100,
 });
 
 const classifierStream = new WritableStream<string>({
