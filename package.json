@@ -3,7 +3,7 @@
 	"module": "src/index.ts",
 	"type": "module",
 	"scripts": {
-		"build": "bun build ./src/index.ts ./src/workers/dniWorker.ts ./src/workers/rucWorker.ts --target bun --root src --outdir dist",
+		"build": "bun build ./src/index.ts ./src/workers/dniWorker.ts ./src/workers/rucWorker.ts --target bun --root src --outdir dist --splitting --sourcemap=linked",
 		"dev": "bun ./src/index.ts"
 	},
 	"devDependencies": {
