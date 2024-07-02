@@ -22,7 +22,7 @@ self.onmessage = async (event: MessageEvent<string>) => {
 
 	const decoderStream = new TextDecoderStream("utf-8")
 	const lineTransformStream = new TransformStream(new LineSplitter);
-	const lineGroupTransformStream = new TransformStream(new LineGrouper(100000));
+	const lineGroupTransformStream = new TransformStream(new LineGrouper(10000));
 
 	const dnisStream = fileStream
 		.pipeThrough(decoderStream)
@@ -30,7 +30,7 @@ self.onmessage = async (event: MessageEvent<string>) => {
 		.pipeThrough(lineGroupTransformStream)
 
 	for await (const lines of dnisStream) {
-		const personas: PersonaNatural[] = []
+		const personaLines: string[] = []
 		for (const line of lines) {
 			const [
 				ruc,
@@ -49,13 +49,10 @@ self.onmessage = async (event: MessageEvent<string>) => {
 
 			const dni = ruc.slice(2, -1)
 
-			personas.push({
-				dni,
-				nombreCompleto: nombreRazonSocial,
-			})
+			personaLines.push(`${dni}\t${nombreRazonSocial}\n`)
 		}
 
-		const readable = Readable.from(personas.map(p => `${p.dni}\t${p.nombreCompleto}\n`))
+		const readable = Readable.from(personaLines)
 		const queryStream = await sql`COPY "PersonaNatural" ("dni", "nombreCompleto") FROM STDIN`.writable()
 
 		await pipeline(readable, queryStream)
