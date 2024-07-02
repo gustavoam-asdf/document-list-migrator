@@ -10,9 +10,9 @@ import { pipeline } from "node:stream/promises";
 declare var self: Worker;
 
 async function retryToInsert(lines: string[], error: Error) {
-	const decimalPartLength = Math.floor(lines.length / 10)
+	const partLength = Math.floor(lines.length / 4)
 
-	if (decimalPartLength < 10) {
+	if (partLength < 10) {
 		console.error({
 			error,
 			personas: lines.map(line => {
@@ -27,7 +27,7 @@ async function retryToInsert(lines: string[], error: Error) {
 		return
 	}
 
-	const parts = splitInParts({ values: lines, size: decimalPartLength })
+	const parts = splitInParts({ values: lines, size: partLength })
 
 	for (const part of parts) {
 		const readable = Readable.from(part)
