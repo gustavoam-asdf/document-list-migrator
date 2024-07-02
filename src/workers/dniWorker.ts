@@ -2,6 +2,8 @@ import { sql } from "../db";
 import { TextDecoderStream } from "../polifylls";
 import { LineGrouper } from "../transformers/LineGrouper";
 import { LineSplitter } from "../transformers/LineSplitter";
+import { Readable, Writable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 
 // prevents TS errors
 declare var self: Worker;
@@ -20,7 +22,7 @@ self.onmessage = async (event: MessageEvent<string>) => {
 
 	const decoderStream = new TextDecoderStream("utf-8")
 	const lineTransformStream = new TransformStream(new LineSplitter);
-	const lineGroupTransformStream = new TransformStream(new LineGrouper(10));
+	const lineGroupTransformStream = new TransformStream(new LineGrouper(100000));
 
 	const dnisStream = fileStream
 		.pipeThrough(decoderStream)
@@ -53,16 +55,11 @@ self.onmessage = async (event: MessageEvent<string>) => {
 			})
 		}
 
-		await sql.unsafe(`
-			INSERT INTO "PersonaNatural" ("dni", "nombreCompleto")
-			VALUES ${personas.map(p => `('${p.dni}', '${p.nombreCompleto}')`).join(", ")}
-		`)
-			.catch(error => {
-				console.error({
-					error,
-					personas,
-				})
-			})
+		const readable = Readable.from(personas.map(p => `${p.dni}\t${p.nombreCompleto}\n`))
+		const queryStream = await sql`COPY "PersonaNatural" ("dni", "nombreCompleto") FROM STDIN`.writable()
+
+		await pipeline(readable, queryStream)
+			.catch(console.error)
 	}
 
 	self.postMessage("DNI worker done");
