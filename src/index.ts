@@ -37,12 +37,8 @@ class LineSplitter implements Transformer<string, string> {
 	}
 }
 
-const rucsFile = Bun.file(`${filesDir}/rucs.txt`);
 const dnisFile = Bun.file(`${filesDir}/dnis.txt`);
 
-const rucsWriter = rucsFile.writer({
-	highWaterMark: 1024 * 1024,
-});
 const dnisWriter = dnisFile.writer({
 	highWaterMark: 1024 * 1024,
 });
@@ -51,22 +47,19 @@ const classifierStream = new WritableStream<string>({
 	write(line) {
 		const isRuc10 = line.startsWith('10');
 		if (!isRuc10) {
-			rucsWriter.write(line + "\n");
 			return;
 		}
 
-		rucsWriter.write(line + "\n");
 		dnisWriter.write(line + "\n");
 	},
 	close() {
-		rucsWriter.end();
 		dnisWriter.end();
 	}
 });
 
 const lineTransformStream = new TransformStream(new LineSplitter);
 
-fileStream
+await fileStream
 	.pipeThrough(decoderStream)
 	.pipeThrough(lineTransformStream)
 	.pipeTo(classifierStream);
