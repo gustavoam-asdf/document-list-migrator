@@ -68,6 +68,7 @@ self.onmessage = async (event: MessageEvent<string>) => {
 	const queryStream = await sql`COPY "PersonaNatural" ("dni", "nombreCompleto") FROM STDIN`.writable()
 
 	console.log("Inserting DNIs");
+	let count = 0
 	for await (const lines of dnisStream) {
 		const personaLines: string[] = []
 		for (const line of lines) {
@@ -97,7 +98,10 @@ self.onmessage = async (event: MessageEvent<string>) => {
 		await pipeline(readable, queryStream, {
 			end: false,
 		})
-			.then(() => console.log(`${(new Date).toISOString()}: Inserted ${lines.length} DNIs`))
+			.then(() => {
+				count += lines.length
+				console.log(`${(new Date).toISOString()}: Inserted ${lines.length} DNIs, ${count} in total`)
+			})
 			.catch(error => retryToInsert(personaLines, error, queryStream))
 
 		// const eventNames = queryStream.eventNames()
