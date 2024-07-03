@@ -17,7 +17,7 @@ type District = {
 type Province = {
 	code: string;
 	value: string;
-	disctricts: District[];
+	districts: District[];
 };
 
 type Region = {
@@ -33,7 +33,7 @@ const exteriorRegion: Region = {
 		{
 			code: "01",
 			value: "EXTERIOR",
-			disctricts: [
+			districts: [
 				{
 					code: "00",
 					value: "MULTIDISTRITAL"
@@ -71,7 +71,7 @@ const regionsWithoutProvinces = await page.evaluate(() => {
 });
 
 const regionsWithoutDistricts: (Omit<Region, "provinces"> & {
-	provinces: Omit<Province, "disctricts">[];
+	provinces: Omit<Province, "districts">[];
 })[] = []
 
 for await (const regionWithoutProvinces of regionsWithoutProvinces) {
@@ -81,7 +81,7 @@ for await (const regionWithoutProvinces of regionsWithoutProvinces) {
 	console.log(`Searching provinces for region ${regionWithoutProvinces.value}`);
 	await regionPage.goto(regionUrl);
 
-	const provincesWithOutDistricts: Omit<Province, "disctricts">[] = await regionPage.evaluate(() => {
+	const provincesWithOutDistricts: Omit<Province, "districts">[] = await regionPage.evaluate(() => {
 		const $provincesSelector = document.querySelector(`select[name="v_pro_cod"]`);
 		if (!$provincesSelector) {
 			throw new Error("Provinces selector not found");
@@ -104,14 +104,14 @@ for await (const regionWithoutProvinces of regionsWithoutProvinces) {
 
 				const provinceValue = $province.textContent?.replace(`${provinceCode}-`, "").trim()!;
 
-				const province: Omit<Province, "disctricts"> = {
+				const province: Omit<Province, "districts"> = {
 					code: provinceCode,
 					value: provinceValue
 				}
 
 				return province;
 			})
-			.filter(Boolean) as Omit<Province, "disctricts">[];
+			.filter(Boolean) as Omit<Province, "districts">[];
 
 		return provinces;
 	});
@@ -176,7 +176,7 @@ for await (const regionWithoutDistricts of regionsWithoutDistricts) {
 				{
 					code: provinceWithoutDistrict.code,
 					value: provinceWithoutDistrict.value,
-					disctricts: districts
+					districts: districts
 				}
 			]
 		});
@@ -192,7 +192,7 @@ const copyFile = `${filesDir}/ubigeo.copy.sql`;
 const copyFileHeader = `COPY public."Ubigeo" (codigo, region, provincia, distrito) FROM stdin;\n`;
 const copyFileContent = regions.reduce((acc, region) => {
 	const regionContent = region.provinces.reduce((acc, province) => {
-		const provinceContent = province.disctricts.reduce((acc, district) => {
+		const provinceContent = province.districts.reduce((acc, district) => {
 			return `${acc}${region.code}${province.code}${district.code}\t${region.value}\t${province.value}\t${district.value}\n`;
 		}, "");
 
