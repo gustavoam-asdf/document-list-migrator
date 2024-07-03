@@ -32,10 +32,14 @@ COPY --from=install /temp/prod/node_modules node_modules
 COPY --from=prerelease /app/src ./src
 COPY --from=prerelease /app/package.json .
 
+RUN addgroup --system --gid 1001 migrator-user
+RUN adduser --system --uid 1001 migrator-user
+
 RUN mkdir -p /app/files
-RUN chown -R bun:bun /app/files
+RUN chown -R migrator-user:migrator-user /app/files
 
 # run the app
-USER bun
+USER migrator-user
+
 EXPOSE 3000/tcp
 ENTRYPOINT bun start
