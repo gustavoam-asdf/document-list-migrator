@@ -55,7 +55,7 @@ self.onmessage = async (event: MessageEvent<string>) => {
 
 	const decoderStream = new TextDecoderStream("utf-8")
 	const lineTransformStream = new TransformStream(new LineSplitter);
-	const lineGroupTransformStream = new TransformStream(new LineGrouper(10000));
+	const lineGroupTransformStream = new TransformStream(new LineGrouper(50000));
 
 	const dnisStream = fileStream
 		.pipeThrough(decoderStream)
@@ -92,7 +92,7 @@ self.onmessage = async (event: MessageEvent<string>) => {
 		await pipeline(readable, queryStream)
 			.catch(error => retryToInsert(personaLines, error))
 
-		console.log(`Inserted ${lines.length} DNIs`);
+		console.log(`${(new Date).toISOString()}: Inserted ${lines.length} DNIs`);
 	}
 
 	self.postMessage("DNI worker done");

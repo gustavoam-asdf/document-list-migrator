@@ -86,7 +86,7 @@ self.onmessage = async (event: MessageEvent<string>) => {
 
 	const decoderStream = new TextDecoderStream("latin1")
 	const lineTransformStream = new TransformStream(new LineSplitter);
-	const lineGroupTransformStream = new TransformStream(new LineGrouper(10000));
+	const lineGroupTransformStream = new TransformStream(new LineGrouper(50000));
 
 	const rucsStream = fileStream
 		.pipeThrough(decoderStream)
@@ -151,7 +151,7 @@ self.onmessage = async (event: MessageEvent<string>) => {
 		await pipeline(readable, queryStream)
 			.catch(async error => retryToInsert(personaLines, error))
 
-		console.log(`Inserted ${lines.length} RUCs`);
+		console.log(`${(new Date).toISOString()}: Inserted ${lines.length} RUCs`);
 	}
 
 	self.postMessage("RUC worker done");
