@@ -136,19 +136,19 @@ self.onmessage = async (event: MessageEvent<string>) => {
 				continue
 			}
 
-			const isRUC10 = ruc.startsWith("10")
+			const noIsRUC10 = !ruc.startsWith("10")
 
-			const nTipoVia = isRUC10 ? (tipoVia ?? '\\N') : '\\N'
-			const nNombreVia = isRUC10 ? (nombreVia ?? '\\N') : '\\N'
-			const nCodigoZona = isRUC10 ? (codigoZona ?? '\\N') : '\\N'
-			const nTipoZona = isRUC10 ? (tipoZona ?? '\\N') : '\\N'
-			const nNumero = isRUC10 ? (numero ?? '\\N') : '\\N'
-			const nInterior = isRUC10 ? (interior ?? '\\N') : '\\N'
-			const nLote = isRUC10 ? (lote ?? '\\N') : '\\N'
-			const nDepartamento = isRUC10 ? (departamento ?? '\\N') : '\\N'
-			const nManzana = isRUC10 ? (manzana ?? '\\N') : '\\N'
-			const nKilometro = isRUC10 ? (kilometro ?? '\\N') : '\\N'
-			const nCodigoUbigeo = isRUC10 ? (ubigeo ?? '\\N') : '\\N'
+			const nTipoVia = noIsRUC10 ? (tipoVia ?? '\\N') : '\\N'
+			const nNombreVia = noIsRUC10 ? (nombreVia ?? '\\N') : '\\N'
+			const nCodigoZona = noIsRUC10 ? (codigoZona ?? '\\N') : '\\N'
+			const nTipoZona = noIsRUC10 ? (tipoZona ?? '\\N') : '\\N'
+			const nNumero = noIsRUC10 ? (numero ?? '\\N') : '\\N'
+			const nInterior = noIsRUC10 ? (interior ?? '\\N') : '\\N'
+			const nLote = noIsRUC10 ? (lote ?? '\\N') : '\\N'
+			const nDepartamento = noIsRUC10 ? (departamento ?? '\\N') : '\\N'
+			const nManzana = noIsRUC10 ? (manzana ?? '\\N') : '\\N'
+			const nKilometro = noIsRUC10 ? (kilometro ?? '\\N') : '\\N'
+			const nCodigoUbigeo = noIsRUC10 ? (ubigeo ?? '\\N') : '\\N'
 
 
 			personaLines.push(`${ruc}\t${razonSocial}\t${estado}\t${condicionDomicilio}\t${nTipoVia}\t${nNombreVia}\t${nCodigoZona}\t${nTipoZona}\t${nNumero}\t${nInterior}\t${nLote}\t${nDepartamento}\t${nManzana}\t${nKilometro}\t${nCodigoUbigeo}\n`)
