@@ -183,12 +183,13 @@ for await (const regionWithoutDistricts of regionsWithoutDistricts) {
 	}
 }
 
+regions.push(exteriorRegion);
+
 const jsonFile = `${filesDir}/ubigeo.json`;
 Bun.write(jsonFile, JSON.stringify(regions, null, 2));
 
 const copyFile = `${filesDir}/ubigeo.copy.sql`;
-const copyFileHeader = `COPY public."Ubigeo" (codigo, region, provincia, distrito) FROM stdin;
-\n`;
+const copyFileHeader = `COPY public."Ubigeo" (codigo, region, provincia, distrito) FROM stdin;\n`;
 const copyFileContent = regions.reduce((acc, region) => {
 	const regionContent = region.provinces.reduce((acc, province) => {
 		const provinceContent = province.disctricts.reduce((acc, district) => {
