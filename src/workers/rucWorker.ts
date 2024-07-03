@@ -138,6 +138,7 @@ self.onmessage = async (event: MessageEvent<string>) => {
 
 			const noIsRUC10 = !ruc.startsWith("10")
 
+			const nCondicionDomicilio = condicionDomicilio ?? '\\N'
 			const nTipoVia = noIsRUC10 ? (tipoVia ?? '\\N') : '\\N'
 			const nNombreVia = noIsRUC10 ? (nombreVia ?? '\\N') : '\\N'
 			const nCodigoZona = noIsRUC10 ? (codigoZona ?? '\\N') : '\\N'
@@ -151,7 +152,7 @@ self.onmessage = async (event: MessageEvent<string>) => {
 			const nCodigoUbigeo = noIsRUC10 ? (ubigeo ?? '\\N') : '\\N'
 
 
-			personaLines.push(`${ruc}\t${razonSocial}\t${estado}\t${condicionDomicilio}\t${nTipoVia}\t${nNombreVia}\t${nCodigoZona}\t${nTipoZona}\t${nNumero}\t${nInterior}\t${nLote}\t${nDepartamento}\t${nManzana}\t${nKilometro}\t${nCodigoUbigeo}\n`)
+			personaLines.push(`${ruc}\t${razonSocial}\t${estado}\t${nCondicionDomicilio}\t${nTipoVia}\t${nNombreVia}\t${nCodigoZona}\t${nTipoZona}\t${nNumero}\t${nInterior}\t${nLote}\t${nDepartamento}\t${nManzana}\t${nKilometro}\t${nCodigoUbigeo}\n`)
 		}
 
 		const readable = Readable.from(personaLines)
