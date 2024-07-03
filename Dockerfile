@@ -28,15 +28,19 @@ COPY . .
 
 # copy production dependencies and source code into final image
 FROM base AS release
-COPY --from=install /temp/prod/node_modules node_modules
-COPY --from=prerelease /app/src ./src
-COPY --from=prerelease /app/package.json .
+
+RUN apk --update add unzip
 
 RUN addgroup --system --gid 1001 migrator-user
 RUN adduser --system --uid 1001 migrator-user
 
+COPY --chown=migrator-user:migrator-user --from=install /temp/prod/node_modules node_modules
+COPY --chown=migrator-user:migrator-user --from=prerelease /app/src ./src
+COPY --chown=migrator-user:migrator-user --from=prerelease /app/package.json .
+
 RUN mkdir -p /app/files
 RUN chown -R migrator-user:migrator-user /app/files
+RUN chmod -R 755 /app/files
 
 # run the app
 USER migrator-user
