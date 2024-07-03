@@ -66,7 +66,6 @@ self.onmessage = async (event: MessageEvent<string>) => {
 		.pipeThrough(lineGroupTransformStream)
 
 	const queryStream = await sql`COPY "PersonaNatural" ("dni", "nombreCompleto") FROM STDIN`.writable()
-	queryStream.setMaxListeners(100)
 
 	console.log("Inserting DNIs");
 	for await (const lines of dnisStream) {
@@ -99,6 +98,8 @@ self.onmessage = async (event: MessageEvent<string>) => {
 			end: false,
 		})
 			.catch(error => retryToInsert(personaLines, error, queryStream))
+
+		queryStream.removeAllListeners()
 
 		console.log(`${(new Date).toISOString()}: Inserted ${lines.length} DNIs`);
 	}

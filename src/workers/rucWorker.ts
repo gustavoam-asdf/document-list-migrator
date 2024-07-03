@@ -97,7 +97,6 @@ self.onmessage = async (event: MessageEvent<string>) => {
 	const queryStream = await sql`
 		COPY "PersonaJuridica" ("ruc", "razonSocial", "estado", "condicionDomicilio", "tipoVia", "nombreVia", "codigoZona", "tipoZona", "numero", "interior", "lote", "departamento", "manzana", "kilometro", "codigoUbigeo") FROM STDIN
 	`.writable()
-	queryStream.setMaxListeners(100)
 
 	console.log("Inserting RUCs");
 	for await (const lines of rucsStream) {
@@ -156,6 +155,8 @@ self.onmessage = async (event: MessageEvent<string>) => {
 			end: false,
 		})
 			.catch(async error => retryToInsert(personaLines, error, queryStream))
+
+		queryStream.removeAllListeners()
 
 		console.log(`${(new Date).toISOString()}: Inserted ${lines.length} RUCs`);
 	}
