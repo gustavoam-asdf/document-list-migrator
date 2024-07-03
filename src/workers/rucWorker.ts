@@ -124,10 +124,11 @@ self.onmessage = async (event: MessageEvent<string>) => {
 					const trimmed = value.trim()
 					const spacesCleaned = trimmed.replace(/\s+/g, " ")
 
+					const onlyHyphens = /^-+$/g.test(spacesCleaned)
+
 					return (
 						spacesCleaned === "" ||
-						spacesCleaned === "-" ||
-						spacesCleaned === "----"
+						onlyHyphens
 					) ? undefined : spacesCleaned
 				})
 
