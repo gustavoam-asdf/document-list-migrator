@@ -28,7 +28,7 @@ export async function updateRucsFile() {
 
 	const classifierStream = new WritableStream<string[]>({
 		write(lines) {
-			for (const line of lines) {
+			const parsed = lines.map(line => {
 				const isRuc10 = line.startsWith('10');
 				if (!isRuc10) {
 					return;
@@ -46,10 +46,12 @@ export async function updateRucsFile() {
 					return;
 				}
 
-				const personLine = line.slice(0, secondPipeCharacter + 1);
+				const personLine = line.slice(0, secondPipeCharacter);
 
-				dnisWriter.write(personLine + "\n");
-			}
+				return personLine;
+			})
+
+			dnisWriter.write(parsed.join('\n'));
 		},
 		close() {
 			dnisWriter.end();
