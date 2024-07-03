@@ -73,8 +73,9 @@ self.onmessage = async (event: MessageEvent<string>) => {
 				.split("|")
 				.map(value => {
 					const trimmed = value.trim()
+					const spacesCleaned = trimmed.replace(/\s+/g, " ")
 
-					return (trimmed === "" || trimmed === "-") ? undefined : trimmed
+					return (spacesCleaned === "" || spacesCleaned === "-") ? undefined : spacesCleaned
 				})
 
 			if (!ruc || !nombreRazonSocial) {
