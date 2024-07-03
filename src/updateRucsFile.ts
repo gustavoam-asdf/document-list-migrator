@@ -1,6 +1,7 @@
 import { filesDir, localFile, localZipFile, remoteZipFile } from "./constants";
 
 import { $ } from "bun";
+import { LineGrouper } from "./transformers/LineGrouper";
 import { LineSplitter } from "./transformers/LineSplitter";
 import { TextDecoderStream } from "./polifylls";
 import fs from "node:fs/promises";
@@ -25,28 +26,30 @@ export async function updateRucsFile() {
 		highWaterMark: 1024 * 1024 * 100,
 	});
 
-	const classifierStream = new WritableStream<string>({
-		write(line) {
-			const isRuc10 = line.startsWith('10');
-			if (!isRuc10) {
-				return;
+	const classifierStream = new WritableStream<string[]>({
+		write(lines) {
+			for (const line of lines) {
+				const isRuc10 = line.startsWith('10');
+				if (!isRuc10) {
+					return;
+				}
+
+				const firstPipeCharacter = line.indexOf('|');
+
+				if (firstPipeCharacter === -1) {
+					return;
+				}
+
+				const secondPipeCharacter = line.indexOf('|', firstPipeCharacter + 1);
+
+				if (secondPipeCharacter === -1) {
+					return;
+				}
+
+				const personLine = line.slice(0, secondPipeCharacter + 1);
+
+				dnisWriter.write(personLine + "\n");
 			}
-
-			const firstPipeCharacter = line.indexOf('|');
-
-			if (firstPipeCharacter === -1) {
-				return;
-			}
-
-			const secondPipeCharacter = line.indexOf('|', firstPipeCharacter + 1);
-
-			if (secondPipeCharacter === -1) {
-				return;
-			}
-
-			const personLine = line.slice(0, secondPipeCharacter + 1);
-
-			dnisWriter.write(personLine + "\n");
 		},
 		close() {
 			dnisWriter.end();
@@ -55,6 +58,7 @@ export async function updateRucsFile() {
 
 	const decoderStream = new TextDecoderStream("latin1")
 	const lineTransformStream = new TransformStream(new LineSplitter);
+	const lineGroupTransformStream = new TransformStream(new LineGrouper(100000));
 
 	const file = Bun.file(localFile)
 	const fileStream = file.stream()
@@ -62,6 +66,7 @@ export async function updateRucsFile() {
 	await fileStream
 		.pipeThrough(decoderStream)
 		.pipeThrough(lineTransformStream)
+		.pipeThrough(lineGroupTransformStream)
 		.pipeTo(classifierStream);
 
 	return {
