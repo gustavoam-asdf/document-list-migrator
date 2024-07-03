@@ -40,7 +40,6 @@ COPY --chown=migrator-user:migrator-user --from=prerelease /app/package.json .
 
 RUN mkdir -p /app/files
 RUN chown -R migrator-user:migrator-user /app/files
-RUN chmod -R 755 /app/files
 
 # run the app
 USER migrator-user
