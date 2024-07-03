@@ -130,7 +130,7 @@ self.onmessage = async (event: MessageEvent<string>) => {
 					return (
 						spacesCleaned === "" ||
 						onlyHyphens
-					) ? undefined : spacesCleaned
+					) ? undefined : rareCharsCleaned
 				})
 
 			if (!ruc || !razonSocial || !estado) {
