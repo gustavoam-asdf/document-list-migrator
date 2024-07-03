@@ -157,8 +157,11 @@ self.onmessage = async (event: MessageEvent<string>) => {
 			.then(() => console.log(`${(new Date).toISOString()}: Inserted ${lines.length} RUCs`))
 			.catch(async error => retryToInsert(personaLines, error, queryStream))
 
-		queryStream.removeAllListeners("pipe")
-		queryStream.removeAllListeners("error")
+		// ! Ensure that only unnecessary events are supressed due to is needed a transaction to commit the data
+		queryStream.removeAllListeners("error");
+		queryStream.removeAllListeners("close");
+		queryStream.removeAllListeners("finish");
+		queryStream.removeAllListeners("end");
 	}
 
 	queryStream.end();

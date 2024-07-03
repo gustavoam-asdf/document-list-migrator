@@ -1,5 +1,6 @@
 {
 	"cSpell.words": [
 		"rucs"
-	]
+	],
+	"scm.experimental.showHistoryGraph": true
 }

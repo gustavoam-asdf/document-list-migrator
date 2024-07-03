@@ -100,8 +100,18 @@ self.onmessage = async (event: MessageEvent<string>) => {
 			.then(() => console.log(`${(new Date).toISOString()}: Inserted ${lines.length} DNIs`))
 			.catch(error => retryToInsert(personaLines, error, queryStream))
 
-		queryStream.removeAllListeners("pipe")
-		queryStream.removeAllListeners("error")
+		// const eventNames = queryStream.eventNames()
+
+		// for (const eventName of eventNames) {
+		// 	const listenerCount = queryStream.listenerCount(eventName);
+		// 	console.log(`Event: ${eventName.toString()}, Listeners: ${listenerCount}`);
+		// }
+
+		// ! Ensure that only unnecessary events are supressed due to is needed a transaction to commit the data
+		queryStream.removeAllListeners("error");
+		queryStream.removeAllListeners("close");
+		queryStream.removeAllListeners("finish");
+		queryStream.removeAllListeners("end");
 	}
 
 	queryStream.end();
