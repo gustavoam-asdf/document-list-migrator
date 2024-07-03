@@ -99,6 +99,7 @@ self.onmessage = async (event: MessageEvent<string>) => {
 	`.writable()
 
 	console.log("Inserting RUCs");
+	let count = 0
 	for await (const lines of rucsStream) {
 		const personaLines: string[] = []
 		for (const line of lines) {
@@ -152,7 +153,6 @@ self.onmessage = async (event: MessageEvent<string>) => {
 			const nKilometro = noIsRUC10 ? (kilometro ?? '\\N') : '\\N'
 			const nCodigoUbigeo = noIsRUC10 ? (ubigeo ?? '\\N') : '\\N'
 
-
 			personaLines.push(`${ruc}\t${razonSocial}\t${estado}\t${nCondicionDomicilio}\t${nTipoVia}\t${nNombreVia}\t${nCodigoZona}\t${nTipoZona}\t${nNumero}\t${nInterior}\t${nLote}\t${nDepartamento}\t${nManzana}\t${nKilometro}\t${nCodigoUbigeo}\n`)
 		}
 
@@ -161,7 +161,10 @@ self.onmessage = async (event: MessageEvent<string>) => {
 		await pipeline(readable, queryStream, {
 			end: false,
 		})
-			.then(() => console.log(`${(new Date).toISOString()}: Inserted ${lines.length} RUCs`))
+			.then(() => {
+				count += lines.length
+				console.log(`${(new Date).toISOString()}: Inserted ${lines.length} RUCs, ${count} in total`)
+			})
 			.catch(async error => retryToInsert(personaLines, error, queryStream))
 
 		// ! Ensure that only unnecessary events are supressed due to is needed a transaction to commit the data
