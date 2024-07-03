@@ -154,11 +154,10 @@ self.onmessage = async (event: MessageEvent<string>) => {
 		await pipeline(readable, queryStream, {
 			end: false,
 		})
+			.then(() => console.log(`${(new Date).toISOString()}: Inserted ${lines.length} RUCs`))
 			.catch(async error => retryToInsert(personaLines, error, queryStream))
 
 		queryStream.removeAllListeners()
-
-		console.log(`${(new Date).toISOString()}: Inserted ${lines.length} RUCs`);
 	}
 
 	queryStream.end();
