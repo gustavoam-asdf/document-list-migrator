@@ -1,9 +1,10 @@
+import { finished, pipeline } from "node:stream/promises";
+
 import { LineGrouper } from "../transformers/LineGrouper";
 import { LineSplitter } from "../transformers/LineSplitter";
 import { Readable, } from "node:stream";
 import { TextDecoderStream } from "../polifylls";
 import { Writable } from "node:stream";
-import { pipeline } from "node:stream/promises";
 import { splitInParts } from "../splitInParts";
 import { sql } from "../db";
 
@@ -69,7 +70,9 @@ async function retryToInsert(lines: string[], error: Error, queryStream: Writabl
 	for (const part of parts) {
 		const readable = Readable.from(part)
 
-		await pipeline(readable, queryStream)
+		await pipeline(readable, queryStream, {
+			end: false,
+		})
 			.catch(error => retryToInsert(part, error, queryStream))
 	}
 }
@@ -94,6 +97,7 @@ self.onmessage = async (event: MessageEvent<string>) => {
 	const queryStream = await sql`
 		COPY "PersonaJuridica" ("ruc", "razonSocial", "estado", "condicionDomicilio", "tipoVia", "nombreVia", "codigoZona", "tipoZona", "numero", "interior", "lote", "departamento", "manzana", "kilometro", "codigoUbigeo") FROM STDIN
 	`.writable()
+	queryStream.setMaxListeners(100)
 
 	console.log("Inserting RUCs");
 	for await (const lines of rucsStream) {
@@ -148,11 +152,17 @@ self.onmessage = async (event: MessageEvent<string>) => {
 
 		const readable = Readable.from(personaLines)
 
-		await pipeline(readable, queryStream)
+		await pipeline(readable, queryStream, {
+			end: false,
+		})
 			.catch(async error => retryToInsert(personaLines, error, queryStream))
 
 		console.log(`${(new Date).toISOString()}: Inserted ${lines.length} RUCs`);
 	}
+
+	queryStream.end();
+
+	await finished(queryStream)
 
 	self.postMessage("RUC worker done");
 	process.exit(0);
