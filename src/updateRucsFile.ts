@@ -1,12 +1,11 @@
 import { filesDir, localFile, localZipFile, remoteZipFile } from "./constants";
 
 import { $ } from "bun";
-import fs from "node:fs/promises";
 import { LineSplitter } from "./transformers/LineSplitter";
+import fs from "node:fs/promises";
 
 export async function updateRucsFile() {
 	console.log("Cleaning files directory...");
-	await fs.rmdir(filesDir, { recursive: true })
 	await fs.mkdir(filesDir, { recursive: true })
 
 	console.log("Downloading file...");
