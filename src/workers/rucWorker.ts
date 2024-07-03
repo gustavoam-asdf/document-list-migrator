@@ -2,6 +2,7 @@ import { LineGrouper } from "../transformers/LineGrouper";
 import { LineSplitter } from "../transformers/LineSplitter";
 import { Readable, } from "node:stream";
 import { TextDecoderStream } from "../polifylls";
+import { Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { splitInParts } from "../splitInParts";
 import { sql } from "../db";
@@ -9,7 +10,7 @@ import { sql } from "../db";
 // prevents TS errors
 declare var self: Worker;
 
-async function retryToInsert(lines: string[], error: Error) {
+async function retryToInsert(lines: string[], error: Error, queryStream: Writable) {
 	const partLength = Math.floor(lines.length / 4)
 
 	if (partLength < 10) {
@@ -67,12 +68,9 @@ async function retryToInsert(lines: string[], error: Error) {
 
 	for (const part of parts) {
 		const readable = Readable.from(part)
-		const queryStream = await sql`
-			COPY "PersonaJuridica" ("ruc", "razonSocial", "estado", "condicionDomicilio", "tipoVia", "nombreVia", "codigoZona", "tipoZona", "numero", "interior", "lote", "departamento", "manzana", "kilometro", "codigoUbigeo") FROM STDIN
-		`.writable()
 
 		await pipeline(readable, queryStream)
-			.catch(error => retryToInsert(part, error))
+			.catch(error => retryToInsert(part, error, queryStream))
 	}
 }
 
@@ -92,6 +90,10 @@ self.onmessage = async (event: MessageEvent<string>) => {
 		.pipeThrough(decoderStream)
 		.pipeThrough(lineTransformStream)
 		.pipeThrough(lineGroupTransformStream)
+
+	const queryStream = await sql`
+		COPY "PersonaJuridica" ("ruc", "razonSocial", "estado", "condicionDomicilio", "tipoVia", "nombreVia", "codigoZona", "tipoZona", "numero", "interior", "lote", "departamento", "manzana", "kilometro", "codigoUbigeo") FROM STDIN
+	`.writable()
 
 	console.log("Inserting RUCs");
 	for await (const lines of rucsStream) {
@@ -145,12 +147,9 @@ self.onmessage = async (event: MessageEvent<string>) => {
 		}
 
 		const readable = Readable.from(personaLines)
-		const queryStream = await sql`
-			COPY "PersonaJuridica" ("ruc", "razonSocial", "estado", "condicionDomicilio", "tipoVia", "nombreVia", "codigoZona", "tipoZona", "numero", "interior", "lote", "departamento", "manzana", "kilometro", "codigoUbigeo") FROM STDIN
-		`.writable()
 
 		await pipeline(readable, queryStream)
-			.catch(async error => retryToInsert(personaLines, error))
+			.catch(async error => retryToInsert(personaLines, error, queryStream))
 
 		console.log(`${(new Date).toISOString()}: Inserted ${lines.length} RUCs`);
 	}
