@@ -9,10 +9,7 @@ console.log(`PID: ${pid}`);
 const {
 	dnisPath,
 	rucsPath,
-} = {
-	dnisPath: `${filesDir}/dnis.txt`,
-	rucsPath: `${filesDir}/padron_reducido_ruc.txt`,
-}; //await updateRucsFile();
+} = await updateRucsFile();
 
 type WorkerStatus = {
 	isDone: true;
