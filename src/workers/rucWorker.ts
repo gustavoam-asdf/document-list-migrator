@@ -138,7 +138,7 @@ self.onmessage = async (event: MessageEvent<string>) => {
 
 			const noIsRUC10 = !ruc.startsWith("10")
 
-			const nCondicionDomicilio = condicionDomicilio ?? '\\N'
+			const nCondicionDomicilio = condicionDomicilio ?? 'NO HABIDO'
 			const nTipoVia = noIsRUC10 ? (tipoVia ?? '\\N') : '\\N'
 			const nNombreVia = noIsRUC10 ? (nombreVia ?? '\\N') : '\\N'
 			const nCodigoZona = noIsRUC10 ? (codigoZona ?? '\\N') : '\\N'
