@@ -124,7 +124,11 @@ self.onmessage = async (event: MessageEvent<string>) => {
 					const trimmed = value.trim()
 					const spacesCleaned = trimmed.replace(/\s+/g, " ")
 
-					return (spacesCleaned === "" || spacesCleaned === "-") ? undefined : spacesCleaned
+					return (
+						spacesCleaned === "" ||
+						spacesCleaned === "-" ||
+						spacesCleaned === "----"
+					) ? undefined : spacesCleaned
 				})
 
 			if (!ruc || !razonSocial || !estado) {
