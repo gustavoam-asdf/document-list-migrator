@@ -3,23 +3,30 @@ services:
     container_name: dl-migrator
     image: ${DOCKER_REGISTRY_URL}/migrator
     build:
-      dockerfile: .
+      context: .
     env_file:
       - .env
     hostname: ${MIGRATOR_HOST}
-    restart: always
+    volumes:
+      - ./files:/app/files
     depends_on:
       - database
   database:
     container_name: dl-database
     image: postgres:16-alpine
     restart: always
-    hostname: ${DB_HOST}
+    hostname: ${DATABASE_HOST}
     ports:
-      - ${DB_PORT}:${DB_PORT}
+      - ${DATABASE_PORT}:${DATABASE_PORT}
     volumes:
       - ./docker/database/postgresql.conf:/etc/postgresql/postgresql.conf:ro
       - ./docker/database/data:/var/lib/postgresql/data
       - ./docker/database/scripts:/docker-entrypoint-initdb.d
       - ./logs/database:/var/log/postgresql
-    command: postgres -c config_file=/etc/postgresql/postgresql.conf -p ${DB_PORT}
+    command: postgres -c config_file=/etc/postgresql/postgresql.conf -p ${DATABASE_PORT}
+    environment:
+      DATABASE_HOST: ${DATABASE_HOST}
+      POSTGRES_USER: ${DATABASE_USER}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD}
+      POSTGRES_DB: ${DATABASE_NAME}
+      POSTGRES_PORT: ${DATABASE_PORT}

@@ -1,4 +1,3 @@
-import { filesDir } from "./constants";
 import { updateRucsFile } from "./updateRucsFile";
 
 const startTime = Date.now();

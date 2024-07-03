@@ -4,6 +4,7 @@
 	"type": "module",
 	"scripts": {
 		"build": "bun build ./src/index.ts ./src/workers/dniWorker.ts ./src/workers/rucWorker.ts --target bun --root src --outdir dist --splitting --sourcemap=linked",
+		"start": "bun ./src/index.ts",
 		"dev": "bun ./src/index.ts"
 	},
 	"devDependencies": {
