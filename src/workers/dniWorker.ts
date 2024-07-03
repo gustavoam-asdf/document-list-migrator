@@ -100,7 +100,8 @@ self.onmessage = async (event: MessageEvent<string>) => {
 			.then(() => console.log(`${(new Date).toISOString()}: Inserted ${lines.length} DNIs`))
 			.catch(error => retryToInsert(personaLines, error, queryStream))
 
-		queryStream.removeAllListeners()
+		queryStream.removeAllListeners("pipe")
+		queryStream.removeAllListeners("error")
 	}
 
 	queryStream.end();
