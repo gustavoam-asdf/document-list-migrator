@@ -2,6 +2,7 @@ import { filesDir, localFile, localZipFile, remoteZipFile } from "./constants";
 
 import { $ } from "bun";
 import { LineSplitter } from "./transformers/LineSplitter";
+import { TextDecoderStream } from "./polifylls";
 import fs from "node:fs/promises";
 
 export async function updateRucsFile() {
