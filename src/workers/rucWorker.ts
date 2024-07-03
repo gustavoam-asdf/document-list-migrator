@@ -1,10 +1,10 @@
-import { sql } from "../db";
-import { TextDecoderStream } from "../polifylls";
-import { splitInParts } from "../splitInParts";
 import { LineGrouper } from "../transformers/LineGrouper";
 import { LineSplitter } from "../transformers/LineSplitter";
 import { Readable, } from "node:stream";
+import { TextDecoderStream } from "../polifylls";
 import { pipeline } from "node:stream/promises";
+import { splitInParts } from "../splitInParts";
+import { sql } from "../db";
 
 // prevents TS errors
 declare var self: Worker;
@@ -150,6 +150,8 @@ self.onmessage = async (event: MessageEvent<string>) => {
 
 		await pipeline(readable, queryStream)
 			.catch(async error => retryToInsert(personaLines, error))
+
+		console.log(`Inserted ${lines.length} RUCs`);
 	}
 
 	self.postMessage("RUC worker done");

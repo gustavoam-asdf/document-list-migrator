@@ -91,6 +91,8 @@ self.onmessage = async (event: MessageEvent<string>) => {
 
 		await pipeline(readable, queryStream)
 			.catch(error => retryToInsert(personaLines, error))
+
+		console.log(`Inserted ${lines.length} DNIs`);
 	}
 
 	self.postMessage("DNI worker done");
