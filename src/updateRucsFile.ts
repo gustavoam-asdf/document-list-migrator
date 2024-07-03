@@ -31,27 +31,27 @@ export async function updateRucsFile() {
 			const parsed = lines.map(line => {
 				const isRuc10 = line.startsWith('10');
 				if (!isRuc10) {
-					return;
+					return "";
 				}
 
 				const firstPipeCharacter = line.indexOf('|');
 
 				if (firstPipeCharacter === -1) {
-					return;
+					return "";
 				}
 
 				const secondPipeCharacter = line.indexOf('|', firstPipeCharacter + 1);
 
 				if (secondPipeCharacter === -1) {
-					return;
+					return "";
 				}
 
 				const personLine = line.slice(0, secondPipeCharacter);
 
-				return personLine;
+				return `${personLine}\n`;
 			})
 
-			dnisWriter.write(parsed.join('\n'));
+			dnisWriter.write(parsed.join(''));
 		},
 		close() {
 			dnisWriter.end();
