@@ -1,7 +1,8 @@
-export class LineSplitter implements Transformer<string, string> {
+export class LineSplitterWithoutHeader implements Transformer<string, string> {
 	private buffer: string;
+	private hasSkippedHeader = false;
 
-	constructor() {
+	constructor(private headerFilter: string) {
 		this.buffer = '';
 	}
 
@@ -10,6 +11,14 @@ export class LineSplitter implements Transformer<string, string> {
 		let lines = this.buffer.split('\n');
 		this.buffer = lines.pop() || ''; // Guardar el último fragmento para la próxima chunk
 		for (let line of lines) {
+			if (!this.hasSkippedHeader) {
+				const isHeader = line.startsWith(this.headerFilter);
+				if (isHeader) {
+					this.hasSkippedHeader = true;
+					continue;
+				}
+			}
+
 			controller.enqueue(line);
 		}
 	}

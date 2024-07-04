@@ -2,6 +2,7 @@ import { finished, pipeline } from "node:stream/promises";
 
 import { LineGrouper } from "../transformers/LineGrouper";
 import { LineSplitter } from "../transformers/LineSplitter";
+import { LineSplitterWithoutHeader } from "../transformers/LineSplitterWithoutHeader";
 import { Readable, } from "node:stream";
 import { TextDecoderStream } from "../polifylls";
 import { Writable } from "node:stream";
@@ -86,7 +87,7 @@ self.onmessage = async (event: MessageEvent<string>) => {
 	const fileStream = file.stream()
 
 	const decoderStream = new TextDecoderStream("latin1")
-	const lineTransformStream = new TransformStream(new LineSplitter);
+	const lineTransformStream = new TransformStream(new LineSplitterWithoutHeader("RUC"));
 	const lineGroupTransformStream = new TransformStream(new LineGrouper(50000));
 
 	const rucsStream = fileStream

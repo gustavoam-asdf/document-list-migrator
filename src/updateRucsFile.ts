@@ -3,6 +3,7 @@ import { filesDir, localFile, localZipFile, remoteZipFile } from "./constants";
 import { $ } from "bun";
 import { LineGrouper } from "./transformers/LineGrouper";
 import { LineSplitter } from "./transformers/LineSplitter";
+import { LineSplitterWithoutHeader } from "./transformers/LineSplitterWithoutHeader";
 import { TextDecoderStream } from "./polifylls";
 import fs from "node:fs/promises";
 
@@ -59,7 +60,7 @@ export async function updateRucsFile() {
 	});
 
 	const decoderStream = new TextDecoderStream("latin1")
-	const lineTransformStream = new TransformStream(new LineSplitter);
+	const lineTransformStream = new TransformStream(new LineSplitterWithoutHeader("RUC"));
 	const lineGroupTransformStream = new TransformStream(new LineGrouper(100000));
 
 	const file = Bun.file(localFile)
