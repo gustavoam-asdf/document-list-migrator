@@ -6,8 +6,8 @@ import { LineSplitterWithoutHeader } from "../transformers/LineSplitterWithoutHe
 import { Readable, } from "node:stream";
 import { TextDecoderStream } from "../polifylls";
 import { Writable } from "node:stream";
+import { primarySql } from "../db";
 import { splitInParts } from "../splitInParts";
-import { sql } from "../db";
 
 // prevents TS errors
 declare var self: Worker;
@@ -78,9 +78,19 @@ async function retryToInsert(lines: string[], error: Error, queryStream: Writabl
 	}
 }
 
-self.onmessage = async (event: MessageEvent<string>) => {
+// self.onmessage = async (event: MessageEvent<{
+// 	filePath: string;
+// 	useSecondaryDb: boolean;
+// }>) => {
+// 	console.log("DNI worker started");
+// 	const { filePath: dniFilePath, useSecondaryDb } = event.data
+
+self.onmessage = async (event: MessageEvent<{
+	filePath: string;
+	useSecondaryDb: boolean;
+}>) => {
 	console.log("RUC worker started");
-	const rucFilePath = event.data
+	const { filePath: rucFilePath, useSecondaryDb } = event.data
 
 	console.log("Reading RUC file");
 	const file = Bun.file(rucFilePath)
@@ -95,7 +105,7 @@ self.onmessage = async (event: MessageEvent<string>) => {
 		.pipeThrough(lineTransformStream)
 		.pipeThrough(lineGroupTransformStream)
 
-	const queryStream = await sql`
+	const queryStream = await primarySql`
 		COPY "PersonaJuridica" ("ruc", "razonSocial", "estado", "condicionDomicilio", "tipoVia", "nombreVia", "codigoZona", "tipoZona", "numero", "interior", "lote", "departamento", "manzana", "kilometro", "codigoUbigeo") FROM STDIN
 	`.writable()
 

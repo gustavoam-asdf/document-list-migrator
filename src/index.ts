@@ -10,80 +10,65 @@ const {
 	rucsPath,
 } = await updateRucsFile();
 
-type WorkerStatus = {
-	isDone: true;
-	endAt: number;
-} | {
-	isDone: false;
-	endAt: null;
+function WorkerPromise({
+	path,
+	name,
+	startMessage,
+}: {
+	path: string;
+	name: string;
+	startMessage: {
+		filePath: string;
+		useSecondaryDb: boolean;
+	}
+}) {
+	return new Promise((resolve, reject) => {
+		const worker = new Worker(new URL(path, import.meta.url), {
+			type: "module",
+			name,
+		});
+
+		worker.postMessage(startMessage);
+
+		worker.addEventListener("message", (message) => {
+			resolve(message);
+		})
+
+		worker.addEventListener("error", (message) => {
+			reject(message);
+		})
+	})
+
 }
 
-let dniStatus: WorkerStatus = {
-	isDone: false,
-	endAt: null,
-};
-let rucStatus: WorkerStatus = {
-	isDone: false,
-	endAt: null,
-};
-
-const dniWorker = new Worker(new URL("./workers/dniWorker.ts", import.meta.url), {
-	type: "module",
+const dniWorker = WorkerPromise({
+	path: "./workers/dniWorker.ts",
 	name: "dniWorker",
-});
-
-dniWorker.postMessage(dnisPath);
-
-dniWorker.addEventListener("message", (message) => {
-	console.log({
-		dniMessage: message
-	})
-	dniStatus = {
-		isDone: true,
-		endAt: Date.now(),
-	};
-
-	if (dniStatus.isDone && rucStatus.isDone) {
-		const endTime = Date.now();
-		console.log(`Done DNI in ${dniStatus.endAt - startTime}ms`);
-		console.log(`Done RUC in ${rucStatus.endAt - startTime}ms`);
-		console.log(`Done all in ${endTime - startTime}ms`);
+	startMessage: {
+		filePath: dnisPath,
+		useSecondaryDb: false,
 	}
 })
 
-dniWorker.addEventListener("error", (message) => {
-	console.error({
-		dniMessage: message
-	})
-})
-
-const rucWorker = new Worker(new URL("./workers/rucWorker.ts", import.meta.url), {
-	type: "module",
+const rucWorker = WorkerPromise({
+	path: "./workers/rucWorker.ts",
 	name: "rucWorker",
-});
-
-rucWorker.postMessage(rucsPath);
-
-rucWorker.addEventListener("message", (message) => {
-	console.log({
-		rucMessage: message
-	})
-
-	rucStatus = {
-		isDone: true,
-		endAt: Date.now(),
-	};
-
-	if (dniStatus.isDone && rucStatus.isDone) {
-		const endTime = Date.now();
-		console.log(`Done DNI in ${dniStatus.endAt - startTime}ms`);
-		console.log(`Done RUC in ${rucStatus.endAt - startTime}ms`);
-		console.log(`Done all in ${endTime - startTime}ms`);
+	startMessage: {
+		filePath: rucsPath,
+		useSecondaryDb: false,
 	}
 })
 
-rucWorker.addEventListener("error", (message) => {
-	console.error({
-		rucMessage: message
-	})
-})
+await Promise.all([
+	dniWorker.then(() => {
+		const endTime = Date.now();
+		console.log(`Done DNI in ${endTime - startTime}ms`);
+	}),
+	rucWorker.then(() => {
+		const endTime = Date.now();
+		console.log(`Done RUC in ${endTime - startTime}ms`);
+	}),
+])
+
+const endTime = Date.now();
+console.log(`Done all in ${endTime - startTime}ms`);

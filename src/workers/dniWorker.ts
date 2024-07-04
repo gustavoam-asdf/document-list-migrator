@@ -5,8 +5,8 @@ import { LineSplitter } from "../transformers/LineSplitter";
 import { Readable } from "node:stream";
 import { TextDecoderStream } from "../polifylls";
 import { Writable } from "node:stream";
+import { primarySql } from "../db";
 import { splitInParts } from "../splitInParts";
-import { sql } from "../db";
 
 // prevents TS errors
 declare var self: Worker;
@@ -48,9 +48,12 @@ async function retryToInsert(lines: string[], error: Error, queryStream: Writabl
 	}
 }
 
-self.onmessage = async (event: MessageEvent<string>) => {
+self.onmessage = async (event: MessageEvent<{
+	filePath: string;
+	useSecondaryDb: boolean;
+}>) => {
 	console.log("DNI worker started");
-	const dniFilePath = event.data
+	const { filePath: dniFilePath, useSecondaryDb } = event.data
 
 	console.log("Reading DNI file");
 	const file = Bun.file(dniFilePath)
@@ -65,7 +68,7 @@ self.onmessage = async (event: MessageEvent<string>) => {
 		.pipeThrough(lineTransformStream)
 		.pipeThrough(lineGroupTransformStream)
 
-	const queryStream = await sql`COPY "PersonaNatural" ("dni", "nombreCompleto") FROM STDIN`.writable()
+	const queryStream = await primarySql`COPY "PersonaNatural" ("dni", "nombreCompleto") FROM STDIN`.writable()
 
 	console.log("Inserting DNIs");
 	let count = 0
