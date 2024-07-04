@@ -1,7 +1,7 @@
 services:
   migrator:
     container_name: dl-migrator
-    image: ${DOCKER_REGISTRY_URL}/migrator
+    image: ${DOCKER_REGISTRY_URL}/migrator-bun
     build:
       context: .
     env_file:
