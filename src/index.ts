@@ -1,6 +1,7 @@
 import { primarySql, secondarySql } from "./db";
 
 import { WorkerPromise } from "./WorkerPromise";
+import { redis } from "./redis";
 import { updateRucsFile } from "./updateRucsFile";
 
 const startTime = Date.now();
@@ -51,8 +52,22 @@ await Promise.all([
 	}),
 ])
 
-//Set in redis that is updating
-//
+type UpdateDataState = {
+	isUpdating: false
+	lastUpdateAt: Date
+} | {
+	isUpdating: true
+	startedAt: Date
+}
+
+const stateKey = "document-list:update-data-state";
+const updatingState: UpdateDataState = {
+	isUpdating: true,
+	startedAt: new Date(),
+};
+
+console.log("Setting state to non-updating");
+await redis.set(stateKey, JSON.stringify(updatingState));
 
 const primaryTimeStart = Date.now();
 
@@ -93,4 +108,13 @@ await Promise.all([
 ])
 
 const endTime = Date.now();
+
+const nonUpdatingState: UpdateDataState = {
+	isUpdating: false,
+	lastUpdateAt: new Date(),
+};
+
+console.log("Setting state to non-updating");
+await redis.set(stateKey, JSON.stringify(nonUpdatingState));
+
 console.log(`Done all in ${endTime - startTime}ms`);
