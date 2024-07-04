@@ -1,12 +1,11 @@
 import { finished, pipeline } from "node:stream/promises";
+import { primarySql, secondarySql, } from "../db";
 
 import { LineGrouper } from "../transformers/LineGrouper";
-import { LineSplitter } from "../transformers/LineSplitter";
 import { LineSplitterWithoutHeader } from "../transformers/LineSplitterWithoutHeader";
 import { Readable, } from "node:stream";
 import { TextDecoderStream } from "../polifylls";
 import { Writable } from "node:stream";
-import { primarySql } from "../db";
 import { splitInParts } from "../splitInParts";
 
 // prevents TS errors
@@ -78,13 +77,6 @@ async function retryToInsert(lines: string[], error: Error, queryStream: Writabl
 	}
 }
 
-// self.onmessage = async (event: MessageEvent<{
-// 	filePath: string;
-// 	useSecondaryDb: boolean;
-// }>) => {
-// 	console.log("DNI worker started");
-// 	const { filePath: dniFilePath, useSecondaryDb } = event.data
-
 self.onmessage = async (event: MessageEvent<{
 	filePath: string;
 	useSecondaryDb: boolean;
@@ -105,11 +97,13 @@ self.onmessage = async (event: MessageEvent<{
 		.pipeThrough(lineTransformStream)
 		.pipeThrough(lineGroupTransformStream)
 
-	const queryStream = await primarySql`
+	const sql = useSecondaryDb ? secondarySql : primarySql
+
+	const queryStream = await sql`
 		COPY "PersonaJuridica" ("ruc", "razonSocial", "estado", "condicionDomicilio", "tipoVia", "nombreVia", "codigoZona", "tipoZona", "numero", "interior", "lote", "departamento", "manzana", "kilometro", "codigoUbigeo") FROM STDIN
 	`.writable()
 
-	console.log("Inserting RUCs");
+	console.log(`Inserting RUCs into ${useSecondaryDb ? "secondary" : "primary"} database`);
 	let count = 0
 	for await (const lines of rucsStream) {
 		const personaLines: string[] = []

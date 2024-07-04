@@ -1,11 +1,11 @@
 import { finished, pipeline } from "node:stream/promises";
+import { primarySql, secondarySql } from "../db";
 
 import { LineGrouper } from "../transformers/LineGrouper";
 import { LineSplitter } from "../transformers/LineSplitter";
 import { Readable } from "node:stream";
 import { TextDecoderStream } from "../polifylls";
 import { Writable } from "node:stream";
-import { primarySql } from "../db";
 import { splitInParts } from "../splitInParts";
 
 // prevents TS errors
@@ -68,9 +68,11 @@ self.onmessage = async (event: MessageEvent<{
 		.pipeThrough(lineTransformStream)
 		.pipeThrough(lineGroupTransformStream)
 
-	const queryStream = await primarySql`COPY "PersonaNatural" ("dni", "nombreCompleto") FROM STDIN`.writable()
+	const sql = useSecondaryDb ? secondarySql : primarySql
 
-	console.log("Inserting DNIs");
+	const queryStream = await sql`COPY "PersonaNatural" ("dni", "nombreCompleto") FROM STDIN`.writable()
+
+	console.log(`Inserting DNIs into ${useSecondaryDb ? "secondary" : "primary"} database`);
 	let count = 0
 	for await (const lines of dnisStream) {
 		const personaLines: string[] = []
