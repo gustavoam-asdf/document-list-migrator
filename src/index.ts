@@ -123,3 +123,5 @@ await fs.rm(dnisPath);
 await fs.rm(rucsPath);
 
 console.log(`Done all in ${endTime - startTime}ms`);
+
+process.exit(0);
