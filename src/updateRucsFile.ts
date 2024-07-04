@@ -7,7 +7,7 @@ import { TextDecoderStream } from "./polifylls";
 import fs from "node:fs/promises";
 
 export async function updateRucsFile() {
-	console.log("Cleaning files directory...");
+	console.log("Create directory if not exists...");
 	await fs.mkdir(filesDir, { recursive: true })
 
 	console.log("Downloading file...");
@@ -19,6 +19,7 @@ export async function updateRucsFile() {
 	console.log("Unzipping file...");
 	await $`unzip ${localZipFile} -d ${filesDir} > /dev/null`
 
+	console.log("Removing zip file...");
 	await fs.rm(localZipFile)
 
 	const dnisFilePath = `${filesDir}/dnis.txt`

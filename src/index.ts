@@ -118,6 +118,7 @@ const nonUpdatingState: UpdateDataState = {
 console.log("Setting state to non-updating");
 await redis.set(stateKey, JSON.stringify(nonUpdatingState));
 
+console.log("Removing files...");
 await fs.rm(dnisPath);
 await fs.rm(rucsPath);
 
