@@ -1,6 +1,7 @@
 import { primarySql, secondarySql } from "./db";
 
 import { WorkerPromise } from "./WorkerPromise";
+import fs from "node:fs/promises";
 import { redis } from "./redis";
 import { updateRucsFile } from "./updateRucsFile";
 
@@ -116,5 +117,8 @@ const nonUpdatingState: UpdateDataState = {
 
 console.log("Setting state to non-updating");
 await redis.set(stateKey, JSON.stringify(nonUpdatingState));
+
+await fs.rm(dnisPath);
+await fs.rm(rucsPath);
 
 console.log(`Done all in ${endTime - startTime}ms`);
