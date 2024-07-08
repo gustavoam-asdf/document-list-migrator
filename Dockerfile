@@ -1,6 +1,6 @@
 # use the official Bun image
 # see all versions at https://hub.docker.com/r/oven/bun/tags
-FROM oven/bun:1-alpine AS base
+FROM oven/bun:1-debian AS base
 WORKDIR /app
 
 # install dependencies into temp directory
@@ -29,7 +29,8 @@ COPY . .
 # copy production dependencies and source code into final image
 FROM base AS release
 
-RUN apk --update add unzip
+RUN apt-get update
+RUN apt-get install unzip -y
 
 RUN addgroup --system --gid 1001 migrator-user
 RUN adduser --system --uid 1001 migrator-user
