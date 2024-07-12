@@ -13,7 +13,21 @@ console.log(`PID: ${pid}`);
 const {
 	dnisPath,
 	rucsPath,
-} = await updateRucsFile();
+} = await updateRucsFile()
+	.then(res => {
+		console.log("Updated document files");
+		return res;
+	})
+	.catch(error => {
+		console.warn("Error updating document, will try again...")
+		console.warn(error);
+		return updateRucsFile()
+			.catch(err => {
+				console.error("Error updating document again, exiting...");
+				console.error(err)
+				process.exit(1);
+			})
+	})
 
 const secondaryTimeStart = Date.now();
 
