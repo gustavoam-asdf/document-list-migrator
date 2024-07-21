@@ -6,7 +6,7 @@ export const primarySql = postgres({
 	database: Bun.env.DATABASE_NAME,
 	username: Bun.env.DATABASE_USER,
 	password: Bun.env.DATABASE_PASSWORD,
-	ssl: true,
+	ssl: Bun.env.DATABASE_USE_SSL === "true",
 })
 
 export const secondarySql = postgres({
@@ -15,5 +15,5 @@ export const secondarySql = postgres({
 	database: Bun.env.DATABASE_NAME_SECONDARY,
 	username: Bun.env.DATABASE_USER,
 	password: Bun.env.DATABASE_PASSWORD,
-	ssl: true,
+	ssl: Bun.env.DATABASE_USE_SSL === "true",
 })
