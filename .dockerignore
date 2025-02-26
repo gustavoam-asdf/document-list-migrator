@@ -36,3 +36,5 @@
 ./logs
 LICENSE
 README.md
+
+files/*.txt
