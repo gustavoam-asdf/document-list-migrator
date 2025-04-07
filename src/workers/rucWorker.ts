@@ -65,21 +65,18 @@ async function retryToInsert(lines: string[], error: Error, createCopyQueryStrea
 		message: "Retrying to insert RUCs"
 	})
 
-	const queryStream = await createCopyQueryStream()
 	const parts = splitInParts({ values: lines, size: partLength })
 
+	let index = 0
 	for (const part of parts) {
 		const readable = Readable.from(part)
+		const queryStream = await createCopyQueryStream()
 
-		await pipeline(readable, queryStream, {
-			end: false,
-		})
+		await pipeline(readable, queryStream)
+			.then(() => console.log(`${(new Date).toISOString()}: Inserted ${part.length} RUCs [${index + 1} / ${parts.length}]`))
 			.catch(error => retryToInsert(part, error, createCopyQueryStream))
+		index++
 	}
-
-	queryStream.end();
-	await finished(queryStream)
-	console.log("Retrying to insert RUCs done")
 }
 
 self.onmessage = async (event: MessageEvent<{
@@ -175,7 +172,7 @@ self.onmessage = async (event: MessageEvent<{
 		})
 			.then(() => {
 				count += lines.length
-				console.log(`${(new Date).toISOString()}: Inserted ${count} RUCs in total to ${useSecondaryDb ? "secondary" : "primary"} database`)
+				console.log(`${(new Date).toISOString()}: Inserted ${count} RUCs to ${useSecondaryDb ? "secondary" : "primary"} database`)
 			})
 			.catch(async error => retryToInsert(personaLines, error, createCopyQueryStream))
 
