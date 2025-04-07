@@ -11,11 +11,12 @@ services:
       - ./files:/app/files
     depends_on:
       - database
+      - redis
   database:
     container_name: dl-database
     image: postgres:16-alpine
     restart: always
-    hostname: ${DATABASE_HOST}
+    # hostname: ${DATABASE_HOST}
     ports:
       - ${DATABASE_PORT}:${DATABASE_PORT}
     volumes:
@@ -30,3 +31,15 @@ services:
       POSTGRES_PASSWORD: ${DATABASE_PASSWORD}
       POSTGRES_DB: ${DATABASE_NAME}
       POSTGRES_PORT: ${DATABASE_PORT}
+  redis:
+    container_name: dl-redis
+    image: redis/redis-stack-server:7.2.0-v6
+    restart: always
+    # hostname: ${REDIS_HOST}
+    ports:
+      - ${REDIS_PORT}:${REDIS_PORT}
+    volumes:
+      - ./docker/redis/data:/data
+      - ./logs/redis:/var/log/redis
+    environment:
+      REDIS_ARGS: --port ${REDIS_PORT} --logfile /var/log/redis/redis-server.log --dbfilename dump.rdb --dir /data --requirepass ${REDIS_PASSWORD}
