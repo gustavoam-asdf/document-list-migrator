@@ -11,10 +11,10 @@ import { splitInParts } from "../splitInParts";
 // prevents TS errors
 declare var self: Worker;
 
-async function retryToInsert(lines: string[], error: Error, queryStream: Writable) {
+async function retryToInsert(lines: string[], error: Error, createCopyQueryStream: () => Promise<Writable>) {
 	const partLength = Math.floor(lines.length / 4)
 
-	if (partLength < 10) {
+	if (partLength < 5) {
 		console.error({
 			error,
 			lines,
@@ -65,6 +65,7 @@ async function retryToInsert(lines: string[], error: Error, queryStream: Writabl
 		message: "Retrying to insert RUCs"
 	})
 
+	const queryStream = await createCopyQueryStream()
 	const parts = splitInParts({ values: lines, size: partLength })
 
 	for (const part of parts) {
@@ -73,8 +74,12 @@ async function retryToInsert(lines: string[], error: Error, queryStream: Writabl
 		await pipeline(readable, queryStream, {
 			end: false,
 		})
-			.catch(error => retryToInsert(part, error, queryStream))
+			.catch(error => retryToInsert(part, error, createCopyQueryStream))
 	}
+
+	queryStream.end();
+	await finished(queryStream)
+	console.log("Retrying to insert RUCs done")
 }
 
 self.onmessage = async (event: MessageEvent<{
@@ -99,9 +104,11 @@ self.onmessage = async (event: MessageEvent<{
 
 	const sql = useSecondaryDb ? secondarySql : primarySql
 
-	const queryStream = await sql`
+	const createCopyQueryStream = () => sql`
 		COPY "PersonaJuridica" ("ruc", "razonSocial", "estado", "condicionDomicilio", "tipoVia", "nombreVia", "codigoZona", "tipoZona", "numero", "interior", "lote", "departamento", "manzana", "kilometro", "codigoUbigeo") FROM STDIN
 	`.writable()
+
+	const queryStream = await createCopyQueryStream()
 
 	console.log(`Inserting RUCs into ${useSecondaryDb ? "secondary" : "primary"} database`);
 	let count = 0
@@ -168,9 +175,9 @@ self.onmessage = async (event: MessageEvent<{
 		})
 			.then(() => {
 				count += lines.length
-				console.log(`${(new Date).toISOString()}: Inserted ${lines.length} RUCs, ${count} in total`)
+				console.log(`${(new Date).toISOString()}: Inserted ${count} RUCs in total to ${useSecondaryDb ? "secondary" : "primary"} database`)
 			})
-			.catch(async error => retryToInsert(personaLines, error, queryStream))
+			.catch(async error => retryToInsert(personaLines, error, createCopyQueryStream))
 
 		// ! Ensure that only unnecessary events are supressed due to is needed a transaction to commit the data
 		queryStream.removeAllListeners("error");

@@ -11,10 +11,10 @@ import { splitInParts } from "../splitInParts";
 // prevents TS errors
 declare var self: Worker;
 
-async function retryToInsert(lines: string[], error: Error, queryStream: Writable) {
+async function retryToInsert(lines: string[], error: Error, createCopyQueryStream: () => Promise<Writable>) {
 	const partLength = Math.floor(lines.length / 4)
 
-	if (partLength < 10) {
+	if (partLength < 5) {
 		console.error({
 			error,
 			lines,
@@ -36,6 +36,7 @@ async function retryToInsert(lines: string[], error: Error, queryStream: Writabl
 		message: "Retrying to insert DNIs"
 	})
 
+	const queryStream = await createCopyQueryStream()
 	const parts = splitInParts({ values: lines, size: partLength })
 
 	for (const part of parts) {
@@ -44,8 +45,12 @@ async function retryToInsert(lines: string[], error: Error, queryStream: Writabl
 		await pipeline(readable, queryStream, {
 			end: false,
 		})
-			.catch(error => retryToInsert(part, error, queryStream))
+			.catch(error => retryToInsert(part, error, createCopyQueryStream))
 	}
+
+	queryStream.end();
+	await finished(queryStream)
+	console.log("Retrying to insert DNIs done")
 }
 
 self.onmessage = async (event: MessageEvent<{
@@ -70,7 +75,9 @@ self.onmessage = async (event: MessageEvent<{
 
 	const sql = useSecondaryDb ? secondarySql : primarySql
 
-	const queryStream = await sql`COPY "PersonaNatural" ("dni", "nombreCompleto") FROM STDIN`.writable()
+	const createCopyQueryStream = () => sql`COPY "PersonaNatural" ("dni", "nombreCompleto") FROM STDIN`.writable()
+
+	const queryStream = await createCopyQueryStream()
 
 	console.log(`Inserting DNIs into ${useSecondaryDb ? "secondary" : "primary"} database`);
 	let count = 0
@@ -105,9 +112,9 @@ self.onmessage = async (event: MessageEvent<{
 		})
 			.then(() => {
 				count += lines.length
-				console.log(`${(new Date).toISOString()}: Inserted ${lines.length} DNIs, ${count} in total`)
+				console.log(`${(new Date).toISOString()}: Inserted ${count} DNIs in total to ${useSecondaryDb ? "secondary" : "primary"} database`)
 			})
-			.catch(error => retryToInsert(personaLines, error, queryStream))
+			.catch(error => retryToInsert(personaLines, error, createCopyQueryStream))
 
 		// const eventNames = queryStream.eventNames()
 
