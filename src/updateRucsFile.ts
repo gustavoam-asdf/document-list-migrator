@@ -5,22 +5,34 @@ import { LineGrouper } from "./transformers/LineGrouper";
 import { LineSplitterWithoutHeader } from "./transformers/LineSplitterWithoutHeader";
 import { TextDecoderStream } from "./polifylls";
 import fs from "node:fs/promises";
+import { Readable } from "node:stream";
+import { pipeline, } from "node:stream/promises";
+import { createWriteStream, } from "node:fs";
 
 export async function updateRucsFile() {
 	console.log("Create directory if not exists...");
 	await fs.mkdir(filesDir, { recursive: true })
+	console.log("Directory created");
 
-	console.log("Downloading file...");
+	console.log("Downloading and saving zip file...");
 	const dataZipped = await fetch(remoteZipFile)
+	const responseStream = Readable.fromWeb(dataZipped.body as any)
 
-	console.log("Saving zip file...");
-	await Bun.write(localZipFile, dataZipped)
+	const zipFileStream = createWriteStream(localZipFile, {
+		flags: 'w',
+		encoding: 'binary',
+	})
+
+	await pipeline(responseStream, zipFileStream)
+	console.log("Zip file saved");
 
 	console.log("Unzipping file...");
 	await $`unzip ${localZipFile} -d ${filesDir} > /dev/null`
+	console.log("File unzipped");
 
 	console.log("Removing zip file...");
 	await fs.rm(localZipFile)
+	console.log("Zip file removed");
 
 	const dnisFilePath = `${filesDir}/dnis.txt`
 	const dnisFile = Bun.file(dnisFilePath);
@@ -61,6 +73,7 @@ export async function updateRucsFile() {
 		}
 	});
 
+	// const decoderStream = new TextDecoderStream("iso-8859-1")
 	const decoderStream = new TextDecoderStream("latin1")
 	const lineTransformStream = new TransformStream(new LineSplitterWithoutHeader("RUC"));
 	const lineGroupTransformStream = new TransformStream(new LineGrouper(100000));
@@ -68,11 +81,13 @@ export async function updateRucsFile() {
 	const file = Bun.file(localFile)
 	const fileStream = file.stream()
 
+	console.log("Processing file...");
 	await fileStream
 		.pipeThrough(decoderStream)
 		.pipeThrough(lineTransformStream)
 		.pipeThrough(lineGroupTransformStream)
 		.pipeTo(classifierStream);
+	console.log("File processed");
 
 	return {
 		dnisPath: dnisFilePath,
