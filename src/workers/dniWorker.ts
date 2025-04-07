@@ -109,7 +109,7 @@ self.onmessage = async (event: MessageEvent<{
 		})
 			.then(() => {
 				count += lines.length
-				console.log(`${(new Date).toISOString()}: Inserted ${count} DNIs to ${useSecondaryDb ? "secondary" : "primary"} database`)
+				console.log(`${(new Date).toISOString()}: Inserted ${count.toString().padStart(8, "_")} DNIs to ${useSecondaryDb ? "secondary" : "primary"} database`)
 			})
 			.catch(error => retryToInsert(personaLines, error, createCopyQueryStream))
 
