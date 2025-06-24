@@ -10,8 +10,10 @@ services:
     volumes:
       - ./files:/app/files
     depends_on:
-      - database
-      - redis
+      database:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
   database:
     container_name: dl-database
     image: postgres:16-alpine
@@ -19,6 +21,12 @@ services:
     hostname: ${DATABASE_HOST}
     ports:
       - ${DATABASE_PORT}:${DATABASE_PORT}
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${DATABASE_USER} -d ${DATABASE_NAME} -p ${DATABASE_PORT}" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     volumes:
       - ./docker/database/postgresql.conf:/etc/postgresql/postgresql.conf:ro
       - ./docker/database/data:/var/lib/postgresql/data
@@ -38,8 +46,15 @@ services:
     hostname: ${REDIS_HOST}
     ports:
       - ${REDIS_PORT}:${REDIS_PORT}
+    healthcheck:
+      test: [ "CMD-SHELL", "redis-cli -p ${REDIS_PORT} PING | grep -q PONG" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
     volumes:
       - ./docker/redis/data:/data
       - ./logs/redis:/var/log/redis
     environment:
+      REDISCLI_AUTH: ${REDIS_PASSWORD}
       REDIS_ARGS: --port ${REDIS_PORT} --logfile /var/log/redis/redis-server.log --dbfilename dump.rdb --dir /data --requirepass ${REDIS_PASSWORD}
