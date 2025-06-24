@@ -76,7 +76,17 @@ async function retryToInsert(lines: string[], error: Error, createCopyQueryStrea
 			.then(() => console.log(`${(new Date).toISOString()}: Inserted ${part.length} RUCs [${index + 1} / ${parts.length}]`))
 			.catch(error => retryToInsert(part, error, createCopyQueryStream))
 		index++
+
+		queryStream.end();
+
+		await finished(queryStream)
+
+		queryStream.removeAllListeners("error");
+		queryStream.removeAllListeners("close");
+		queryStream.removeAllListeners("finish");
+		queryStream.removeAllListeners("end");
 	}
+
 }
 
 self.onmessage = async (event: MessageEvent<{
@@ -129,7 +139,7 @@ self.onmessage = async (event: MessageEvent<{
 				manzana,
 				kilometro,
 			] = line
-				.split("|")
+				.split(/(?<!\\)\|/)
 				.map(value => {
 					const trimmed = value.trim()
 					const spacesCleaned = trimmed.replace(/\s+/g, " ")
@@ -145,6 +155,12 @@ self.onmessage = async (event: MessageEvent<{
 
 			if (!ruc || !razonSocial || !estado) {
 				continue
+			}
+
+			const validUbigeoRegex = /^\d{2}\d{2}\d{2}$/;
+			if (ubigeo && !validUbigeoRegex.test(ubigeo)) {
+				console.error(`Invalid ubigeo in line: ${line}`);
+				continue;
 			}
 
 			const noIsRUC10 = !ruc.startsWith("10")
