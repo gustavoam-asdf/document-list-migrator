@@ -7,7 +7,7 @@ const redis = new Redis({
 	db: Number(Bun.env.REDIS_DB),
 	lazyConnect: true,
 	showFriendlyErrorStack: true,
-	tls: {},
+	tls: Bun.env.REDIS_USE_SSL === "true" ? {} : undefined,
 })
 
 
