@@ -1,7 +1,10 @@
 {
 	"cSpell.words": [
+		"dnis",
+		"REDISCLI",
 		"rucs",
 		"Ubigeo"
 	],
+	"editor.fontLigatures": false,
 	"scm.experimental.showHistoryGraph": true
 }

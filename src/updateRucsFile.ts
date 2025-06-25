@@ -9,6 +9,41 @@ import { Readable } from "node:stream";
 import { pipeline, } from "node:stream/promises";
 import { createWriteStream, } from "node:fs";
 
+type LineParser = (line: string) => string | undefined;
+
+const dniParser: LineParser = line => {
+	const isRuc10 = line.startsWith('10');
+	if (!isRuc10) {
+		return "";
+	}
+
+	const firstPipeCharacter = line.indexOf('|');
+
+	if (firstPipeCharacter === -1) {
+		return "";
+	}
+
+	const secondPipeCharacter = line.indexOf('|', firstPipeCharacter + 1);
+
+	if (secondPipeCharacter === -1) {
+		return "";
+	}
+
+	const dniLine = line.slice(0, secondPipeCharacter);
+
+	return dniLine;
+}
+
+const rucParser: LineParser = line => {
+	const trimmed = line.trim()
+	const spacesCleaned = trimmed.replace(/\s+/g, " ")
+	const rareCharsCleaned = spacesCleaned.replace(/\\/g, "\\\\")
+	const withoutHyphens = rareCharsCleaned.replace(/\|-+/g, '|')
+
+	const rucLine = withoutHyphens.replace(/\\\\\|/g, '-')
+	return rucLine;
+}
+
 export async function updateRucsFile() {
 	console.log("Create directory if not exists...");
 	await fs.mkdir(filesDir, { recursive: true })
@@ -36,44 +71,44 @@ export async function updateRucsFile() {
 
 	const dnisFilePath = `${filesDir}/dnis.txt`
 	const dnisFile = Bun.file(dnisFilePath);
-
 	const dnisWriter = dnisFile.writer({
 		highWaterMark: 1024 * 1024 * 100,
 	});
 
+	const rucsFilePath = `${filesDir}/rucs.txt`
+	const rucFile = Bun.file(rucsFilePath);
+	const rucsWriter = rucFile.writer({
+		highWaterMark: 1024 * 1024 * 100,
+	})
+
 	const classifierStream = new WritableStream<string[]>({
 		write(lines) {
-			const parsed = lines.map(line => {
-				const isRuc10 = line.startsWith('10');
-				if (!isRuc10) {
-					return "";
+			const dniLines: string[] = [];
+			const rucLines: string[] = [];
+
+			for (const line of lines) {
+				const dniLine = dniParser(line);
+				const rucLine = rucParser(line);
+
+				if (dniLine) {
+					dniLines.push(dniLine);
 				}
-
-				const firstPipeCharacter = line.indexOf('|');
-
-				if (firstPipeCharacter === -1) {
-					return "";
+				if (rucLine) {
+					rucLines.push(rucLine);
 				}
+			}
 
-				const secondPipeCharacter = line.indexOf('|', firstPipeCharacter + 1);
-
-				if (secondPipeCharacter === -1) {
-					return "";
-				}
-
-				const personLine = line.slice(0, secondPipeCharacter);
-
-				return `${personLine}\n`;
-			})
-
-			dnisWriter.write(parsed.join(''));
+			dnisWriter.write(dniLines.join('\n'));
+			rucsWriter.write(rucLines.join('\n'));
 		},
-		close() {
-			dnisWriter.end();
+		async close() {
+			await Promise.all([
+				dnisWriter.end(),
+				rucsWriter.end(),
+			])
 		}
 	});
 
-	// const decoderStream = new TextDecoderStream("iso-8859-1")
 	const decoderStream = new TextDecoderStream("latin1")
 	const lineTransformStream = new TransformStream(new LineSplitterWithoutHeader("RUC"));
 	const lineGroupTransformStream = new TransformStream(new LineGrouper(100000));
@@ -89,8 +124,10 @@ export async function updateRucsFile() {
 		.pipeTo(classifierStream);
 	console.log("File processed");
 
+	await fs.rm(localFile)
+
 	return {
 		dnisPath: dnisFilePath,
-		rucsPath: localFile,
+		rucsPath: rucsFilePath,
 	}
 }
