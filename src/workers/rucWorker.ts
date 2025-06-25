@@ -139,28 +139,15 @@ self.onmessage = async (event: MessageEvent<{
 				manzana,
 				kilometro,
 			] = line
-				.split(/(?<!\\)\|/)
+				.split('|')
 				.map(value => {
 					const trimmed = value.trim()
-					const spacesCleaned = trimmed.replace(/\s+/g, " ")
-					const rareCharsCleaned = spacesCleaned.replace(/\\/g, "\\\\")
 
-					const onlyHyphens = /^-+$/g.test(rareCharsCleaned)
-
-					return (
-						spacesCleaned === "" ||
-						onlyHyphens
-					) ? undefined : rareCharsCleaned
+					return trimmed === "" ? undefined : trimmed
 				})
 
 			if (!ruc || !razonSocial || !estado) {
 				continue
-			}
-
-			const validUbigeoRegex = /^\d{2}\d{2}\d{2}$/;
-			if (ubigeo && !validUbigeoRegex.test(ubigeo)) {
-				console.error(`Invalid ubigeo in line: ${line}`);
-				continue;
 			}
 
 			const noIsRUC10 = !ruc.startsWith("10")
