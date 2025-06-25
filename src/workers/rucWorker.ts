@@ -100,7 +100,7 @@ self.onmessage = async (event: MessageEvent<{
 	const file = Bun.file(rucFilePath)
 	const fileStream = file.stream()
 
-	const decoderStream = new TextDecoderStream("latin1")
+	const decoderStream = new TextDecoderStream("utf-8")
 	const lineTransformStream = new TransformStream(new LineSplitterWithoutHeader("RUC"));
 	const lineGroupTransformStream = new TransformStream(new LineGrouper(50000));
 
