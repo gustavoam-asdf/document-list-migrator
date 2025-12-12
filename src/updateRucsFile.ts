@@ -3,17 +3,21 @@ import { filesDir, localFile, localZipFile, remoteZipFile } from "./constants";
 import { $ } from "bun";
 import { LineGrouper } from "./transformers/LineGrouper";
 import { LineSplitterWithoutHeader } from "./transformers/LineSplitterWithoutHeader";
-import { TextDecoderStream } from "./polifylls";
-import fs from "node:fs/promises";
 import { Readable } from "node:stream";
-import { pipeline, } from "node:stream/promises";
+import { TextDecoderStream } from "./polifylls";
 import { createWriteStream, } from "node:fs";
+import fs from "node:fs/promises";
+import { pipeline, } from "node:stream/promises";
 
 type LineParser = (line: string) => string | undefined;
 
 const dniParser: LineParser = line => {
 	const isRuc10 = line.startsWith('10');
 	if (!isRuc10) {
+		return "";
+	}
+
+	if (line.includes('ANULACION - ERROR SU')) {
 		return "";
 	}
 
@@ -35,6 +39,10 @@ const dniParser: LineParser = line => {
 }
 
 const rucParser: LineParser = line => {
+	if (line.includes('ANULACION - ERROR SU')) {
+		return "";
+	}
+
 	const trimmed = line.trim()
 	const spacesCleaned = trimmed.replace(/\s+/g, " ")
 	const rareCharsCleaned = spacesCleaned.replace(/\\/g, "\\\\")
