@@ -6,4 +6,4 @@ export const localFile = `${filesDir}/padron_reducido_ruc.txt`
 
 export const dnisDir = `${filesDir}/dnis`
 export const rucsDir = `${filesDir}/rucs`
-export const CHUNK_SIZE = 5_000_000 // 5M lines per file/worker
+export const CHUNK_SIZE = parseInt(Bun.env.CHUNK_SIZE || '5000000', 10) // Default: 5M lines per file/worker
