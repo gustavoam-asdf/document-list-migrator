@@ -1,8 +1,8 @@
+import { WorkerProgressTracker, WorkerPromise } from "./WorkerPromise";
 import { dnisDir, rucsDir } from "./constants";
 import { dropConstraintSafely, recreateConstraintSafely } from "./constraintManager";
 import { primarySql, secondarySql } from "./db";
 
-import { WorkerPromise } from "./WorkerPromise";
 import fs from "node:fs/promises";
 import { redis } from "./redis";
 import { updateRucsFile } from "./updateRucsFile";
@@ -35,6 +35,7 @@ const secondaryTimeStart = Date.now();
 // Desactivar FK constraint para mejorar rendimiento de INSERT masivo
 await dropConstraintSafely(secondarySql, "secondary");
 
+console.log("Truncating secondary tables...");
 await secondarySql.begin(async sql => {
 	await sql`TRUNCATE "PersonaNatural"`
 	await sql`TRUNCATE "PersonaJuridica"`
@@ -43,6 +44,14 @@ await secondarySql.begin(async sql => {
 })
 
 console.log(`Creating ${dniChunkFiles.length} DNI workers and ${rucChunkFiles.length} RUC workers for secondary database`);
+
+const secondaryDniProgressTracker = new WorkerProgressTracker(dniChunkFiles.length, (result, totals) => {
+	console.log(`[secondary-dni] Worker ${result.workerName} finished: ${result.count.toLocaleString()} records | Progress: ${totals.completedWorkers}/${totals.totalWorkers} workers | Total DNIs: ${totals.totalRecords.toLocaleString()}`);
+});
+
+const secondaryRucProgressTracker = new WorkerProgressTracker(rucChunkFiles.length, (result, totals) => {
+	console.log(`[secondary-ruc] Worker ${result.workerName} finished: ${result.count.toLocaleString()} records | Progress: ${totals.completedWorkers}/${totals.totalWorkers} workers | Total RUCs: ${totals.totalRecords.toLocaleString()}`);
+});
 
 // Create parallel workers for secondary database
 const secondaryDniStartTime = Date.now();
@@ -54,11 +63,13 @@ const secondaryDniPromise = Promise.all(
 			startMessage: {
 				filePath,
 				useSecondaryDb: true,
-			}
+			},
+			progressTracker: secondaryDniProgressTracker,
 		})
 	)
 ).then(() => {
-	console.log(`Done secondary DNI in ${Date.now() - secondaryDniStartTime}ms`);
+	const totals = secondaryDniProgressTracker.getTotals();
+	console.log(`Done secondary DNI in ${Date.now() - secondaryDniStartTime}ms | Total DNIs: ${totals.totalRecords.toLocaleString()}`);
 });
 
 const secondaryRucStartTime = Date.now();
@@ -70,15 +81,19 @@ const secondaryRucPromise = Promise.all(
 			startMessage: {
 				filePath,
 				useSecondaryDb: true,
-			}
+			},
+			progressTracker: secondaryRucProgressTracker,
 		})
 	)
 ).then(() => {
-	console.log(`Done secondary RUC in ${Date.now() - secondaryRucStartTime}ms`);
+	const totals = secondaryRucProgressTracker.getTotals();
+	console.log(`Done secondary RUC in ${Date.now() - secondaryRucStartTime}ms | Total RUCs: ${totals.totalRecords.toLocaleString()}`);
 });
 
 await Promise.all([secondaryDniPromise, secondaryRucPromise]).then(() => {
-	console.log(`Done secondary DB in ${Date.now() - secondaryTimeStart}ms`);
+	const dniTotals = secondaryDniProgressTracker.getTotals();
+	const rucTotals = secondaryRucProgressTracker.getTotals();
+	console.log(`Done secondary DB in ${Date.now() - secondaryTimeStart}ms | DNIs: ${dniTotals.totalRecords.toLocaleString()} | RUCs: ${rucTotals.totalRecords.toLocaleString()}`);
 });
 
 // Recrear FK constraint después del INSERT masivo
@@ -106,6 +121,7 @@ const primaryTimeStart = Date.now();
 // Desactivar FK constraint para mejorar rendimiento de INSERT masivo
 await dropConstraintSafely(primarySql, "primary");
 
+console.log("Truncating primary tables...");
 await primarySql.begin(async sql => {
 	await sql`TRUNCATE "PersonaNatural"`
 	await sql`TRUNCATE "PersonaJuridica"`
@@ -114,6 +130,14 @@ await primarySql.begin(async sql => {
 })
 
 console.log(`Creating ${dniChunkFiles.length} DNI workers and ${rucChunkFiles.length} RUC workers for primary database`);
+
+const primaryDniProgressTracker = new WorkerProgressTracker(dniChunkFiles.length, (result, totals) => {
+	console.log(`[primary-dni] Worker ${result.workerName} finished: ${result.count.toLocaleString()} records | Progress: ${totals.completedWorkers}/${totals.totalWorkers} workers | Total DNIs: ${totals.totalRecords.toLocaleString()}`);
+});
+
+const primaryRucProgressTracker = new WorkerProgressTracker(rucChunkFiles.length, (result, totals) => {
+	console.log(`[primary-ruc] Worker ${result.workerName} finished: ${result.count.toLocaleString()} records | Progress: ${totals.completedWorkers}/${totals.totalWorkers} workers | Total RUCs: ${totals.totalRecords.toLocaleString()}`);
+});
 
 // Create parallel workers for primary database
 const primaryDniStartTime = Date.now();
@@ -125,11 +149,13 @@ const primaryDniPromise = Promise.all(
 			startMessage: {
 				filePath,
 				useSecondaryDb: false,
-			}
+			},
+			progressTracker: primaryDniProgressTracker,
 		})
 	)
 ).then(() => {
-	console.log(`Done primary DNI in ${Date.now() - primaryDniStartTime}ms`);
+	const totals = primaryDniProgressTracker.getTotals();
+	console.log(`Done primary DNI in ${Date.now() - primaryDniStartTime}ms | Total DNIs: ${totals.totalRecords.toLocaleString()}`);
 });
 
 const primaryRucStartTime = Date.now();
@@ -141,15 +167,19 @@ const primaryRucPromise = Promise.all(
 			startMessage: {
 				filePath,
 				useSecondaryDb: false,
-			}
+			},
+			progressTracker: primaryRucProgressTracker,
 		})
 	)
 ).then(() => {
-	console.log(`Done primary RUC in ${Date.now() - primaryRucStartTime}ms`);
+	const totals = primaryRucProgressTracker.getTotals();
+	console.log(`Done primary RUC in ${Date.now() - primaryRucStartTime}ms | Total RUCs: ${totals.totalRecords.toLocaleString()}`);
 });
 
 await Promise.all([primaryDniPromise, primaryRucPromise]).then(() => {
-	console.log(`Done primary DB in ${Date.now() - primaryTimeStart}ms`);
+	const dniTotals = primaryDniProgressTracker.getTotals();
+	const rucTotals = primaryRucProgressTracker.getTotals();
+	console.log(`Done primary DB in ${Date.now() - primaryTimeStart}ms | DNIs: ${dniTotals.totalRecords.toLocaleString()} | RUCs: ${rucTotals.totalRecords.toLocaleString()}`);
 });
 
 // Recrear FK constraint después del INSERT masivo
