@@ -50,7 +50,7 @@ const secondaryDniPromise = Promise.all(
 	dniChunkFiles.map((filePath, index) =>
 		WorkerPromise({
 			workerPath: "./workers/dniWorker.ts",
-			name: `dniWorker-secondary-${index}`,
+			name: `dni-secondary-${index}`,
 			startMessage: {
 				filePath,
 				useSecondaryDb: true,
@@ -66,7 +66,7 @@ const secondaryRucPromise = Promise.all(
 	rucChunkFiles.map((filePath, index) =>
 		WorkerPromise({
 			workerPath: "./workers/rucWorker.ts",
-			name: `rucWorker-secondary-${index}`,
+			name: `ruc-secondary-${index}`,
 			startMessage: {
 				filePath,
 				useSecondaryDb: true,
@@ -121,7 +121,7 @@ const primaryDniPromise = Promise.all(
 	dniChunkFiles.map((filePath, index) =>
 		WorkerPromise({
 			workerPath: "./workers/dniWorker.ts",
-			name: `dniWorker-primary-${index}`,
+			name: `dni-primary-${index}`,
 			startMessage: {
 				filePath,
 				useSecondaryDb: false,
@@ -137,7 +137,7 @@ const primaryRucPromise = Promise.all(
 	rucChunkFiles.map((filePath, index) =>
 		WorkerPromise({
 			workerPath: "./workers/rucWorker.ts",
-			name: `rucWorker-primary-${index}`,
+			name: `ruc-primary-${index}`,
 			startMessage: {
 				filePath,
 				useSecondaryDb: false,
