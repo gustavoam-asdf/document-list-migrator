@@ -1,4 +1,4 @@
-import { CHUNK_SIZE, dnisDir, filesDir, localFile, localZipFile, remoteZipFile, rucsDir } from "./constants";
+import { FILE_LINES_SPLIT, dnisDir, filesDir, localFile, localZipFile, remoteZipFile, rucsDir } from "./constants";
 
 import { $ } from "bun";
 import { LineGrouper } from "./transformers/LineGrouper";
@@ -111,7 +111,7 @@ export async function updateRucsFile() {
 
 			// Write DNI lines with chunk rotation
 			for (const dniLine of dniLines) {
-				if (dniLinesInCurrentChunk >= CHUNK_SIZE) {
+				if (dniLinesInCurrentChunk >= FILE_LINES_SPLIT) {
 					await currentDniWriter.end();
 					dniChunkIndex++;
 					dniLinesInCurrentChunk = 0;
@@ -126,7 +126,7 @@ export async function updateRucsFile() {
 
 			// Write RUC lines with chunk rotation
 			for (const rucLine of rucLines) {
-				if (rucLinesInCurrentChunk >= CHUNK_SIZE) {
+				if (rucLinesInCurrentChunk >= FILE_LINES_SPLIT) {
 					await currentRucWriter.end();
 					rucChunkIndex++;
 					rucLinesInCurrentChunk = 0;
