@@ -1,4 +1,4 @@
-import { filesDir, localFile, localZipFile, remoteZipFile } from "./constants";
+import { CHUNK_SIZE, dnisDir, filesDir, localFile, localZipFile, remoteZipFile, rucsDir } from "./constants";
 
 import { $ } from "bun";
 import { LineGrouper } from "./transformers/LineGrouper";
@@ -17,7 +17,7 @@ const dniParser: LineParser = line => {
 		return "";
 	}
 
-	if (line.includes('ANULACION - ERROR SU')) {
+	if (line.includes('|ANULACION - ERROR SU|')) {
 		return "";
 	}
 
@@ -39,7 +39,7 @@ const dniParser: LineParser = line => {
 }
 
 const rucParser: LineParser = line => {
-	if (line.includes('ANULACION - ERROR SU')) {
+	if (line.includes('|ANULACION - ERROR SU|')) {
 		return "";
 	}
 
@@ -53,9 +53,11 @@ const rucParser: LineParser = line => {
 }
 
 export async function updateRucsFile() {
-	console.log("Create directory if not exists...");
+	console.log("Create directories if not exists...");
 	await fs.mkdir(filesDir, { recursive: true })
-	console.log("Directory created");
+	await fs.mkdir(dnisDir, { recursive: true })
+	await fs.mkdir(rucsDir, { recursive: true })
+	console.log("Directories created");
 
 	console.log("Downloading and saving zip file...");
 	const dataZipped = await fetch(remoteZipFile)
@@ -77,20 +79,21 @@ export async function updateRucsFile() {
 	await fs.rm(localZipFile)
 	console.log("Zip file removed");
 
-	const dnisFilePath = `${filesDir}/dnis.txt`
-	const dnisFile = Bun.file(dnisFilePath);
-	const dnisWriter = dnisFile.writer({
-		highWaterMark: 1024 * 1024 * 100,
+	// Chunk writers management
+	let dniChunkIndex = 0;
+	let dniLinesInCurrentChunk = 0;
+	let currentDniWriter = Bun.file(`${dnisDir}/chunk_${dniChunkIndex}.txt`).writer({
+		highWaterMark: 1024 * 1024 * 50,
 	});
 
-	const rucsFilePath = `${filesDir}/rucs.txt`
-	const rucFile = Bun.file(rucsFilePath);
-	const rucsWriter = rucFile.writer({
-		highWaterMark: 1024 * 1024 * 100,
-	})
+	let rucChunkIndex = 0;
+	let rucLinesInCurrentChunk = 0;
+	let currentRucWriter = Bun.file(`${rucsDir}/chunk_${rucChunkIndex}.txt`).writer({
+		highWaterMark: 1024 * 1024 * 50,
+	});
 
 	const classifierStream = new WritableStream<string[]>({
-		write(lines) {
+		async write(lines) {
 			const dniLines: string[] = [];
 			const rucLines: string[] = [];
 
@@ -106,13 +109,40 @@ export async function updateRucsFile() {
 				}
 			}
 
-			dnisWriter.write(dniLines.join('\n'));
-			rucsWriter.write(rucLines.join('\n'));
+			// Write DNI lines with chunk rotation
+			for (const dniLine of dniLines) {
+				if (dniLinesInCurrentChunk >= CHUNK_SIZE) {
+					await currentDniWriter.end();
+					dniChunkIndex++;
+					dniLinesInCurrentChunk = 0;
+					currentDniWriter = Bun.file(`${dnisDir}/chunk_${dniChunkIndex}.txt`).writer({
+						highWaterMark: 1024 * 1024 * 50,
+					});
+					console.log(`Created DNI chunk file ${dniChunkIndex}`);
+				}
+				currentDniWriter.write(dniLine + '\n');
+				dniLinesInCurrentChunk++;
+			}
+
+			// Write RUC lines with chunk rotation
+			for (const rucLine of rucLines) {
+				if (rucLinesInCurrentChunk >= CHUNK_SIZE) {
+					await currentRucWriter.end();
+					rucChunkIndex++;
+					rucLinesInCurrentChunk = 0;
+					currentRucWriter = Bun.file(`${rucsDir}/chunk_${rucChunkIndex}.txt`).writer({
+						highWaterMark: 1024 * 1024 * 50,
+					});
+					console.log(`Created RUC chunk file ${rucChunkIndex}`);
+				}
+				currentRucWriter.write(rucLine + '\n');
+				rucLinesInCurrentChunk++;
+			}
 		},
 		async close() {
 			await Promise.all([
-				dnisWriter.end(),
-				rucsWriter.end(),
+				currentDniWriter.end(),
+				currentRucWriter.end(),
 			])
 		}
 	});
@@ -132,10 +162,16 @@ export async function updateRucsFile() {
 		.pipeTo(classifierStream);
 	console.log("File processed");
 
+	console.log(`Created ${dniChunkIndex + 1} DNI chunk files and ${rucChunkIndex + 1} RUC chunk files`);
+
 	await fs.rm(localFile)
 
+	// Build file paths arrays
+	const dniChunkFiles = Array.from({ length: dniChunkIndex + 1 }, (_, i) => `${dnisDir}/chunk_${i}.txt`);
+	const rucChunkFiles = Array.from({ length: rucChunkIndex + 1 }, (_, i) => `${rucsDir}/chunk_${i}.txt`);
+
 	return {
-		dnisPath: dnisFilePath,
-		rucsPath: rucsFilePath,
+		dniChunkFiles,
+		rucChunkFiles,
 	}
 }

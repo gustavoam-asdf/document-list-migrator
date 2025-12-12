@@ -1,22 +1,25 @@
+export type WorkerStartMessage = {
+	filePath: string;
+	useSecondaryDb: boolean;
+	workerName: string;
+}
+
 export function WorkerPromise({
-	path,
+	workerPath,
 	name,
 	startMessage,
 }: {
-	path: string;
+	workerPath: string;
 	name: string;
-	startMessage: {
-		filePath: string;
-		useSecondaryDb: boolean;
-	}
+	startMessage: Omit<WorkerStartMessage, 'workerName'>;
 }) {
 	return new Promise((resolve, reject) => {
-		const worker = new Worker(new URL(path, import.meta.url), {
+		const worker = new Worker(new URL(workerPath, import.meta.url), {
 			type: "module",
 			name,
 		});
 
-		worker.postMessage(startMessage);
+		worker.postMessage({ ...startMessage, workerName: name });
 
 		worker.addEventListener("message", (message) => {
 			resolve(message);
@@ -26,5 +29,4 @@ export function WorkerPromise({
 			reject(message);
 		})
 	})
-
 }

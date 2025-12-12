@@ -11,7 +11,7 @@ import { splitInParts } from "../splitInParts";
 // prevents TS errors
 declare var self: Worker;
 
-async function retryToInsert(lines: string[], error: Error, createCopyQueryStream: () => Promise<Writable>) {
+async function retryToInsert(lines: string[], error: Error, createCopyQueryStream: () => Promise<Writable>): Promise<void> {
 	const partLength = Math.floor(lines.length / 4)
 
 	if (partLength < 5) {
@@ -31,7 +31,7 @@ async function retryToInsert(lines: string[], error: Error, createCopyQueryStrea
 	}
 
 	console.error({
-		error,
+		error: error.message,
 		lines: lines.length,
 		message: "Retrying to insert DNIs"
 	})
@@ -43,9 +43,14 @@ async function retryToInsert(lines: string[], error: Error, createCopyQueryStrea
 		const readable = Readable.from(part)
 		const queryStream = await createCopyQueryStream()
 
-		await pipeline(readable, queryStream)
-			.then(() => console.log(`${(new Date).toISOString()}: Inserted ${part.length} DNIs [${index + 1} / ${parts.length}]`))
-			.catch(error => retryToInsert(part, error, createCopyQueryStream))
+		try {
+			await pipeline(readable, queryStream)
+			console.log(`${(new Date).toISOString()}: Inserted ${part.length} DNIs [${index + 1} / ${parts.length}]`)
+		} catch (retryError) {
+			await retryToInsert(part, retryError as Error, createCopyQueryStream)
+		} finally {
+			queryStream.removeAllListeners()
+		}
 		index++
 	}
 }
@@ -53,17 +58,18 @@ async function retryToInsert(lines: string[], error: Error, createCopyQueryStrea
 self.onmessage = async (event: MessageEvent<{
 	filePath: string;
 	useSecondaryDb: boolean;
+	workerName: string;
 }>) => {
-	console.log("DNI worker started");
-	const { filePath: dniFilePath, useSecondaryDb } = event.data
+	const { filePath: dniFilePath, useSecondaryDb, workerName } = event.data
+	console.log(`${workerName} started - file: ${dniFilePath}`);
 
-	console.log("Reading DNI file");
+	console.log(`${workerName}: Reading file`);
 	const file = Bun.file(dniFilePath)
 	const fileStream = file.stream()
 
 	const decoderStream = new TextDecoderStream("utf-8")
 	const lineTransformStream = new TransformStream(new LineSplitter);
-	const lineGroupTransformStream = new TransformStream(new LineGrouper(50000));
+	const lineGroupTransformStream = new TransformStream(new LineGrouper(100000));
 
 	const dnisStream = fileStream
 		.pipeThrough(decoderStream)
@@ -76,7 +82,7 @@ self.onmessage = async (event: MessageEvent<{
 
 	const queryStream = await createCopyQueryStream()
 
-	console.log(`Inserting DNIs into ${useSecondaryDb ? "secondary" : "primary"} database`);
+	console.log(`${workerName}: Inserting into ${useSecondaryDb ? "secondary" : "primary"} database`);
 	let count = 0
 	for await (const lines of dnisStream) {
 		const personaLines: string[] = []
@@ -104,21 +110,16 @@ self.onmessage = async (event: MessageEvent<{
 
 		const readable = Readable.from(personaLines)
 
-		await pipeline(readable, queryStream, {
-			end: false,
-		})
-			.then(() => {
-				count += lines.length
-				console.log(`${(new Date).toISOString()}: Inserted ${count.toString().padStart(8, "_")} DNIs to ${useSecondaryDb ? "secondary" : "primary"} database`)
+		try {
+			await pipeline(readable, queryStream, {
+				end: false,
 			})
-			.catch(error => retryToInsert(personaLines, error, createCopyQueryStream))
-
-		// const eventNames = queryStream.eventNames()
-
-		// for (const eventName of eventNames) {
-		// 	const listenerCount = queryStream.listenerCount(eventName);
-		// 	console.log(`Event: ${eventName.toString()}, Listeners: ${listenerCount}`);
-		// }
+			count += lines.length
+			console.log(`${(new Date).toISOString()}: ${workerName} - Inserted ${count.toString().padStart(8, "_")} DNIs to ${useSecondaryDb ? "secondary" : "primary"} database`)
+		} catch (error) {
+			await retryToInsert(personaLines, error as Error, createCopyQueryStream)
+			count += lines.length
+		}
 
 		// ! Ensure that only unnecessary events are supressed due to is needed a transaction to commit the data
 		queryStream.removeAllListeners("error");
@@ -130,6 +131,7 @@ self.onmessage = async (event: MessageEvent<{
 	queryStream.end();
 	await finished(queryStream)
 
-	self.postMessage("DNI worker done");
+	console.log(`${workerName} done - Total: ${count} records`);
+	self.postMessage({ workerName, count });
 	process.exit(0);
 };

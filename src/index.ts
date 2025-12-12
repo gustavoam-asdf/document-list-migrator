@@ -1,3 +1,5 @@
+import { dnisDir, rucsDir } from "./constants";
+import { dropConstraintSafely, recreateConstraintSafely } from "./constraintManager";
 import { primarySql, secondarySql } from "./db";
 
 import { WorkerPromise } from "./WorkerPromise";
@@ -10,10 +12,7 @@ const startTime = Date.now();
 const pid = process.pid;
 console.log(`PID: ${pid}`);
 
-const {
-	dnisPath,
-	rucsPath,
-} = await updateRucsFile()
+const { dniChunkFiles, rucChunkFiles } = await updateRucsFile()
 	.then(res => {
 		console.log("Updated document files");
 		return res;
@@ -29,7 +28,12 @@ const {
 			})
 	})
 
+console.log(`Found ${dniChunkFiles.length} DNI chunk files and ${rucChunkFiles.length} RUC chunk files`);
+
 const secondaryTimeStart = Date.now();
+
+// Desactivar FK constraint para mejorar rendimiento de INSERT masivo
+await dropConstraintSafely(secondarySql, "secondary");
 
 await secondarySql.begin(async sql => {
 	await sql`TRUNCATE "PersonaNatural"`
@@ -38,34 +42,47 @@ await secondarySql.begin(async sql => {
 	console.log("Truncated secondary tables");
 })
 
-const secondaryDniWorker = WorkerPromise({
-	path: "./workers/dniWorker.ts",
-	name: "dniWorker",
-	startMessage: {
-		filePath: dnisPath,
-		useSecondaryDb: true,
-	}
-})
+console.log(`Creating ${dniChunkFiles.length} DNI workers and ${rucChunkFiles.length} RUC workers for secondary database`);
 
-const secondaryRucWorker = WorkerPromise({
-	path: "./workers/rucWorker.ts",
-	name: "rucWorker",
-	startMessage: {
-		filePath: rucsPath,
-		useSecondaryDb: true,
-	}
-})
+// Create parallel workers for secondary database
+const secondaryDniStartTime = Date.now();
+const secondaryDniPromise = Promise.all(
+	dniChunkFiles.map((filePath, index) =>
+		WorkerPromise({
+			workerPath: "./workers/dniWorker.ts",
+			name: `dniWorker-secondary-${index}`,
+			startMessage: {
+				filePath,
+				useSecondaryDb: true,
+			}
+		})
+	)
+).then(() => {
+	console.log(`Done secondary DNI in ${Date.now() - secondaryDniStartTime}ms`);
+});
 
-await Promise.all([
-	secondaryDniWorker.then(() => {
-		const endTime = Date.now();
-		console.log(`Done secondary DNI in ${endTime - secondaryTimeStart}ms`);
-	}),
-	secondaryRucWorker.then(() => {
-		const endTime = Date.now();
-		console.log(`Done secondary RUC in ${endTime - secondaryTimeStart}ms`);
-	}),
-])
+const secondaryRucStartTime = Date.now();
+const secondaryRucPromise = Promise.all(
+	rucChunkFiles.map((filePath, index) =>
+		WorkerPromise({
+			workerPath: "./workers/rucWorker.ts",
+			name: `rucWorker-secondary-${index}`,
+			startMessage: {
+				filePath,
+				useSecondaryDb: true,
+			}
+		})
+	)
+).then(() => {
+	console.log(`Done secondary RUC in ${Date.now() - secondaryRucStartTime}ms`);
+});
+
+await Promise.all([secondaryDniPromise, secondaryRucPromise]).then(() => {
+	console.log(`Done secondary DB in ${Date.now() - secondaryTimeStart}ms`);
+});
+
+// Recrear FK constraint después del INSERT masivo
+await recreateConstraintSafely(secondarySql, "secondary");
 
 type UpdateDataState = {
 	isUpdating: false
@@ -81,10 +98,13 @@ const updatingState: UpdateDataState = {
 	startedAt: new Date(),
 };
 
-console.log("Setting state to non-updating");
+console.log("Setting state to updating");
 await redis.set(stateKey, JSON.stringify(updatingState));
 
 const primaryTimeStart = Date.now();
+
+// Desactivar FK constraint para mejorar rendimiento de INSERT masivo
+await dropConstraintSafely(primarySql, "primary");
 
 await primarySql.begin(async sql => {
 	await sql`TRUNCATE "PersonaNatural"`
@@ -93,34 +113,47 @@ await primarySql.begin(async sql => {
 	console.log("Truncated primary tables");
 })
 
-const dniWorker = WorkerPromise({
-	path: "./workers/dniWorker.ts",
-	name: "dniWorker",
-	startMessage: {
-		filePath: dnisPath,
-		useSecondaryDb: false,
-	}
-})
+console.log(`Creating ${dniChunkFiles.length} DNI workers and ${rucChunkFiles.length} RUC workers for primary database`);
 
-const rucWorker = WorkerPromise({
-	path: "./workers/rucWorker.ts",
-	name: "rucWorker",
-	startMessage: {
-		filePath: rucsPath,
-		useSecondaryDb: false,
-	}
-})
+// Create parallel workers for primary database
+const primaryDniStartTime = Date.now();
+const primaryDniPromise = Promise.all(
+	dniChunkFiles.map((filePath, index) =>
+		WorkerPromise({
+			workerPath: "./workers/dniWorker.ts",
+			name: `dniWorker-primary-${index}`,
+			startMessage: {
+				filePath,
+				useSecondaryDb: false,
+			}
+		})
+	)
+).then(() => {
+	console.log(`Done primary DNI in ${Date.now() - primaryDniStartTime}ms`);
+});
 
-await Promise.all([
-	dniWorker.then(() => {
-		const endTime = Date.now();
-		console.log(`Done DNI in ${endTime - primaryTimeStart}ms`);
-	}),
-	rucWorker.then(() => {
-		const endTime = Date.now();
-		console.log(`Done RUC in ${endTime - primaryTimeStart}ms`);
-	}),
-])
+const primaryRucStartTime = Date.now();
+const primaryRucPromise = Promise.all(
+	rucChunkFiles.map((filePath, index) =>
+		WorkerPromise({
+			workerPath: "./workers/rucWorker.ts",
+			name: `rucWorker-primary-${index}`,
+			startMessage: {
+				filePath,
+				useSecondaryDb: false,
+			}
+		})
+	)
+).then(() => {
+	console.log(`Done primary RUC in ${Date.now() - primaryRucStartTime}ms`);
+});
+
+await Promise.all([primaryDniPromise, primaryRucPromise]).then(() => {
+	console.log(`Done primary DB in ${Date.now() - primaryTimeStart}ms`);
+});
+
+// Recrear FK constraint después del INSERT masivo
+await recreateConstraintSafely(primarySql, "primary");
 
 const endTime = Date.now();
 
@@ -132,9 +165,9 @@ const nonUpdatingState: UpdateDataState = {
 console.log("Setting state to non-updating");
 await redis.set(stateKey, JSON.stringify(nonUpdatingState));
 
-console.log("Removing files...");
-await fs.rm(dnisPath);
-await fs.rm(rucsPath);
+console.log("Removing chunk files...");
+await fs.rm(dnisDir, { recursive: true });
+await fs.rm(rucsDir, { recursive: true });
 
 console.log(`Done all in ${endTime - startTime}ms`);
 

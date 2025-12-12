@@ -7,6 +7,11 @@ export const primarySql = postgres({
 	username: Bun.env.DATABASE_USER,
 	password: Bun.env.DATABASE_PASSWORD,
 	ssl: Bun.env.DATABASE_USE_SSL === "true",
+	max: 5,
+	idle_timeout: 30,
+	connect_timeout: 30,
+	prepare: false,
+	fetch_types: false,
 })
 
 export const secondarySql = postgres({
@@ -16,4 +21,9 @@ export const secondarySql = postgres({
 	username: Bun.env.DATABASE_USER,
 	password: Bun.env.DATABASE_PASSWORD,
 	ssl: Bun.env.DATABASE_USE_SSL === "true",
+	max: 5,
+	idle_timeout: 30,
+	connect_timeout: 30,
+	prepare: false,
+	fetch_types: false,
 })

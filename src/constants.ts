@@ -3,3 +3,7 @@ export const rootDir = process.cwd()
 export const filesDir = `${rootDir}/files`
 export const localZipFile = `${filesDir}/list.zip`
 export const localFile = `${filesDir}/padron_reducido_ruc.txt`
+
+export const dnisDir = `${filesDir}/dnis`
+export const rucsDir = `${filesDir}/rucs`
+export const CHUNK_SIZE = 5_000_000 // 5M lines per file/worker
