@@ -32,8 +32,8 @@ FROM base AS release
 RUN apt-get update
 RUN apt-get install unzip -y
 
-RUN addgroup --system --gid 1001 migrator-user
-RUN adduser --system --uid 1001 migrator-user
+RUN groupadd --system --gid 1001 migrator-user
+RUN useradd --system --uid 1001 --gid migrator-user --no-create-home migrator-user
 
 COPY --chown=migrator-user:migrator-user --from=install /temp/prod/node_modules node_modules
 COPY --chown=migrator-user:migrator-user --from=prerelease /app/src ./src
