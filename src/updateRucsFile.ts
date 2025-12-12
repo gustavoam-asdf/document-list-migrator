@@ -47,8 +47,9 @@ const rucParser: LineParser = line => {
 	const spacesCleaned = trimmed.replace(/\s+/g, " ")
 	const rareCharsCleaned = spacesCleaned.replace(/\\/g, "\\\\")
 	const withoutHyphens = rareCharsCleaned.replace(/\|-+/g, '|')
+	const withoutTrailingPipes = withoutHyphens.replace(/\|+$/, '')
 
-	const rucLine = withoutHyphens.replace(/\\\\\|/g, '-')
+	const rucLine = withoutTrailingPipes.replace(/\\\\\|/g, '-')
 	return rucLine;
 }
 
