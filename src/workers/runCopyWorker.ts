@@ -3,16 +3,21 @@ import { finished, pipeline } from "node:stream/promises"
 
 import { LineGrouper } from "../stream/LineGrouper"
 import { LineSplitter } from "../stream/LineSplitter"
-import { RejectsWriter } from "../rejects/RejectsWriter"
 import { TextDecoderStream } from "../stream/polifylls"
 import { extractPgErrorDetails } from "../errors/pgErrorDetails"
 import { isConnectionError } from "../errors/isConnectionError"
-import { rejectsDir } from "../constants"
 import { splitInParts } from "../shared/splitInParts"
 
 const MIN_QUARTER_SIZE = 5
 const CONNECTION_RETRY_MAX = 3
 const CONNECTION_RETRY_DELAY_MS = 500
+
+export type RejectEntryPayload = {
+	source: string
+	rawLine?: string
+	error: string
+	[key: string]: unknown
+}
 
 export type CopyWorkerProgress = {
 	type: "progress"
@@ -22,6 +27,12 @@ export type CopyWorkerProgress = {
 	batchMs: number
 }
 
+export type CopyWorkerReject = {
+	type: "reject"
+	workerName: string
+	entry: RejectEntryPayload
+}
+
 export type CopyWorkerDone = {
 	type: "done"
 	workerName: string
@@ -29,20 +40,22 @@ export type CopyWorkerDone = {
 	rejected: number
 }
 
+type WorkerOutMessage = CopyWorkerProgress | CopyWorkerReject | CopyWorkerDone
+
 type RunParams = {
 	filePath: string
 	useSecondaryDb: boolean
 	workerName: string
 	batchRows: number
 	createCopyStream: () => Promise<Writable>
-	postMessage: (msg: CopyWorkerProgress | CopyWorkerDone) => void
+	postMessage: (msg: WorkerOutMessage) => void
 	// Si devuelve true entre batches, el worker drena el batch actual y sale limpio.
 	shouldStop?: () => boolean
 }
 
 type QuarterContext = {
 	createCopyStream: () => Promise<Writable>
-	rejects: RejectsWriter
+	emitReject: (entry: RejectEntryPayload) => void
 	workerName: string
 	filePath: string
 	batchIndex: number
@@ -68,7 +81,7 @@ async function isolateBadRows(
 			inserted++
 		} catch (rowError) {
 			const rowDetails = extractPgErrorDetails(rowError)
-			ctx.rejects.write({
+			ctx.emitReject({
 				source: `copy:${ctx.workerName}`,
 				rawLine: row.replace(/\n$/, ""),
 				error: rowDetails.message,
@@ -92,14 +105,12 @@ async function isolateBadRows(
 	}
 
 	if (rejected === 0) {
-		// Ninguna fila individual falló, pero el batch como conjunto sí. Raro
-		// (¿constraint violado por conjunto?). Logueamos todas con el error compartido.
 		console.warn(
 			`[${ctx.workerName}] all ${lines.length} rows passed individually but batch failed — ` +
 			`logging all to rejects with shared error`,
 		)
 		for (let i = 0; i < lines.length; i++) {
-			ctx.rejects.write({
+			ctx.emitReject({
 				source: `copy:${ctx.workerName}`,
 				rawLine: lines[i]!.replace(/\n$/, ""),
 				error: errorDetails.message,
@@ -181,7 +192,11 @@ export async function runCopyWorker({
 		.pipeThrough(lineTransformStream)
 		.pipeThrough(lineGroupTransformStream)
 
-	const rejects = new RejectsWriter(`${rejectsDir}/copy-${phase}-${workerName}.jsonl`)
+	// El writer ya no vive en el worker: enviamos cada reject por postMessage
+	// y el main consolida en un único archivo por (phase, workerType).
+	const emitReject = (entry: RejectEntryPayload) => {
+		postMessage({ type: "reject", workerName, entry })
+	}
 
 	let queryStream = await createCopyStream()
 	let count = 0
@@ -190,8 +205,6 @@ export async function runCopyWorker({
 
 	let drainedEarly = false
 	for await (const lines of linesStream) {
-		// Si nos pidieron drenar, salimos antes de procesar el siguiente batch.
-		// El batch en vuelo no se interrumpe, lo cerramos limpio.
 		if (shouldStop?.()) {
 			console.warn(`[${workerName}] shutdown requested — draining after batch ${batchIndex}`)
 			drainedEarly = true
@@ -199,8 +212,6 @@ export async function runCopyWorker({
 		}
 		batchIndex++
 		const batchStart = Date.now()
-		// LineSplitter ya quitó el `\n` final; lo reagregamos para COPY.
-		// Filtramos líneas vacías (pasan si el chunk file tuviera saltos dobles).
 		const tsvLines: string[] = []
 		for (const line of lines) {
 			if (line.length === 0) continue
@@ -236,7 +247,7 @@ export async function runCopyWorker({
 						if (attempt === CONNECTION_RETRY_MAX) {
 							const details = extractPgErrorDetails(retryErr)
 							for (let i = 0; i < tsvLines.length; i++) {
-								rejects.write({
+								emitReject({
 									source: `copy:${workerName}`,
 									rawLine: tsvLines[i]!.replace(/\n$/, ""),
 									error: `connection retry exhausted: ${details.message}`,
@@ -253,7 +264,7 @@ export async function runCopyWorker({
 			} else {
 				const result = await retryWithQuartering(tsvLines, error as Error, {
 					createCopyStream,
-					rejects,
+					emitReject,
 					workerName,
 					filePath,
 					batchIndex,
@@ -282,8 +293,6 @@ export async function runCopyWorker({
 			batchMs,
 		})
 
-		// Ver comentario original: hay que quitar listeners para que el COPY
-		// pueda commitearse al final manteniendo el stream vivo entre batches.
 		queryStream.removeAllListeners("error")
 		queryStream.removeAllListeners("close")
 		queryStream.removeAllListeners("finish")
@@ -297,9 +306,7 @@ export async function runCopyWorker({
 		console.warn(`[${workerName}] COPY stream finished with error: ${(closeErr as Error).message}`)
 	}
 
-	const rejectCount = await rejects.close()
-
 	const tag = drainedEarly ? "done (drained)" : "done"
-	console.log(`[${workerName}] ${tag} | total inserted ${count.toLocaleString()} | rejected ${rejectCount}`)
-	postMessage({ type: "done", workerName, count, rejected: rejectCount })
+	console.log(`[${workerName}] ${tag} | total inserted ${count.toLocaleString()} | rejected ${totalRejected}`)
+	postMessage({ type: "done", workerName, count, rejected: totalRejected })
 }

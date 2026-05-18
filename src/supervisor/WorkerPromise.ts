@@ -12,6 +12,18 @@ export type WorkerProgressMessage = {
 	batchMs: number;     // latencia del batch
 }
 
+export type WorkerRejectMessage = {
+	type: "reject";
+	workerName: string;
+	// Campos del reject (source, error, rawLine, etc.) — el main los reenvía al writer consolidado.
+	entry: {
+		source: string
+		rawLine?: string
+		error: string
+		[key: string]: unknown
+	}
+}
+
 export type WorkerDoneMessage = {
 	type: "done";
 	workerName: string;
@@ -19,7 +31,7 @@ export type WorkerDoneMessage = {
 	rejected: number;
 }
 
-export type WorkerMessage = WorkerProgressMessage | WorkerDoneMessage
+export type WorkerMessage = WorkerProgressMessage | WorkerRejectMessage | WorkerDoneMessage
 
 export type WorkerResult = {
 	workerName: string;
@@ -77,6 +89,7 @@ export type WorkerPromiseParams = {
 	name: string;
 	startMessage: Omit<WorkerStartMessage, "workerName">;
 	onProgress?: (msg: WorkerProgressMessage) => void;
+	onReject?: (msg: WorkerRejectMessage) => void;
 }
 
 export type WorkerHandle = {
@@ -92,6 +105,7 @@ export function spawnWorker({
 	name,
 	startMessage,
 	onProgress,
+	onReject,
 }: WorkerPromiseParams): WorkerHandle {
 	const worker = new Worker(new URL(workerPath, import.meta.url), {
 		type: "module",
@@ -103,6 +117,10 @@ export function spawnWorker({
 			const msg = event.data
 			if (msg.type === "progress") {
 				onProgress?.(msg)
+				return
+			}
+			if (msg.type === "reject") {
+				onReject?.(msg)
 				return
 			}
 			if (msg.type === "done") {

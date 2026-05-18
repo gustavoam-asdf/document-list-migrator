@@ -8,9 +8,12 @@ import {
 	PROBE_THRESHOLD_PCT,
 	SHUTDOWN_GRACE_MS,
 	WORKER_LIVENESS_TIMEOUT_MS,
+	rejectsDir,
 } from "../constants"
 import { installSignalHandlers, shouldExit } from "../shared/shutdown"
 import { spawnWorker, type WorkerHandle, type WorkerProgressMessage } from "./WorkerPromise"
+
+import { RejectsWriter } from "../rejects/RejectsWriter"
 
 type WorkerType = "dni" | "ruc"
 
@@ -78,6 +81,11 @@ export async function runPhase(params: RunPhaseParams): Promise<PhaseResult> {
 		`| max_connections=${maxConnections} maxConcurrency=${maxConcurrency} initialTarget=${target}`,
 	)
 
+	// Writers consolidados — 2 archivos por fase, todos los workers de un mismo
+	// tipo escriben al mismo. Como el main es single-threaded no hay concurrencia.
+	const dniRejects = new RejectsWriter(`${rejectsDir}/copy-${phase}-dni.jsonl`)
+	const rucRejects = new RejectsWriter(`${rejectsDir}/copy-${phase}-ruc.jsonl`)
+
 	type ProgressEvent = { ts: number; rows: number }
 	const progressEvents: ProgressEvent[] = []
 	const WINDOW_MS = PROBE_INTERVAL_MS
@@ -135,11 +143,13 @@ export async function runPhase(params: RunPhaseParams): Promise<PhaseResult> {
 			? "../workers/dniWorker.ts"
 			: "../workers/rucWorker.ts"
 
+		const targetWriter = task.workerType === "dni" ? dniRejects : rucRejects
 		const handle = spawnWorker({
 			workerPath,
 			name,
 			startMessage: { filePath: task.filePath, useSecondaryDb },
 			onProgress: msg => handleProgress(name, task.workerType, msg),
+			onReject: msg => targetWriter.write(msg.entry),
 		})
 
 		const settled = handle.promise.then(() => undefined, err => {
@@ -261,6 +271,9 @@ export async function runPhase(params: RunPhaseParams): Promise<PhaseResult> {
 		clearInterval(timer)
 	}
 
+	const dniRejectCount = await dniRejects.close()
+	const rucRejectCount = await rucRejects.close()
+
 	const elapsedMs = Date.now() - start
 	const avgRps = probeCount > 0 ? rpsAccumulator / probeCount : (totalInserted / (elapsedMs / 1000))
 
@@ -284,7 +297,7 @@ export async function runPhase(params: RunPhaseParams): Promise<PhaseResult> {
 	console.log(
 		`[supervisor:${phase}] ${tag} in ${(elapsedMs / 1000).toFixed(1)}s | ` +
 		`inserted ${totalInserted.toLocaleString()} (dni ${dniInserted.toLocaleString()} + ruc ${rucInserted.toLocaleString()}) ` +
-		`| rejected ${totalRejected} | terminated ${terminatedWorkers} ` +
+		`| rejected ${totalRejected} (dni file=${dniRejectCount}, ruc file=${rucRejectCount}) | terminated ${terminatedWorkers} ` +
 		`| avg ${Math.round(avgRps).toLocaleString()} rps ` +
 		`| concurrency: initial=${result.initialTarget} peak=${peakConcurrency} final=${target} max=${maxConcurrency}`,
 	)
