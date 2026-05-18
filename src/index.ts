@@ -1,6 +1,6 @@
 import { dnisDir, rejectsDir, rucsDir } from "./constants";
 import { dropConstraintSafely, recreateConstraintSafely } from "./constraints/constraintManager";
-import { getMaxConnections, primarySql, secondarySql } from "./db";
+import { pingDb, primarySql, secondarySql, verifyTables } from "./db";
 import { installSignalHandlers, shouldExit, shutdownReasonText } from "./shared/shutdown";
 import { runPhase, type PhaseResult } from "./supervisor/runPhase";
 
@@ -76,7 +76,9 @@ function logPhaseSummary(result: PhaseResult) {
 }
 
 // ============ SECONDARY PHASE ============
-const secondaryMaxConnections = await getMaxConnections(secondarySql);
+const secondaryPing = await pingDb(secondarySql, "secondary");
+await verifyTables(secondarySql, "secondary", ["PersonaNatural", "PersonaJuridica"]);
+
 await dropConstraintSafely(secondarySql, "secondary");
 
 console.log("[main] truncating secondary tables...");
@@ -90,7 +92,7 @@ const secondaryResult = await runPhase({
 	useSecondaryDb: true,
 	dniChunkFiles,
 	rucChunkFiles,
-	maxConnections: secondaryMaxConnections,
+	maxConnections: secondaryPing.maxConnections,
 });
 logPhaseSummary(secondaryResult);
 
@@ -110,7 +112,9 @@ const updatingState: UpdateDataState = { isUpdating: true, startedAt: new Date()
 await redis.set(stateKey, JSON.stringify(updatingState));
 
 // ============ PRIMARY PHASE ============
-const primaryMaxConnections = await getMaxConnections(primarySql);
+const primaryPing = await pingDb(primarySql, "primary");
+await verifyTables(primarySql, "primary", ["PersonaNatural", "PersonaJuridica"]);
+
 await dropConstraintSafely(primarySql, "primary");
 
 console.log("[main] truncating primary tables...");
@@ -124,7 +128,7 @@ const primaryResult = await runPhase({
 	useSecondaryDb: false,
 	dniChunkFiles,
 	rucChunkFiles,
-	maxConnections: primaryMaxConnections,
+	maxConnections: primaryPing.maxConnections,
 });
 logPhaseSummary(primaryResult);
 
