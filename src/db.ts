@@ -106,17 +106,25 @@ export async function pingDb(
 
 // Verifica que existan las tablas que vamos a tocar. Falla fast si el schema
 // no está desplegado o si conectamos a la base equivocada.
+// Una query por tabla para evitar problemas de encoding de arrays con
+// `fetch_types: false`. Para 2-3 tablas el overhead es trivial.
 export async function verifyTables(
 	sql: Sql,
 	dbName: string,
 	tableNames: string[],
 ): Promise<void> {
-	const rows = await sql<{ table_name: string }[]>`
-		SELECT table_name FROM information_schema.tables
-		WHERE table_schema = 'public' AND table_name = ANY(${tableNames})
-	`
-	const found = new Set(rows.map(r => r.table_name))
-	const missing = tableNames.filter(t => !found.has(t))
+	const missing: string[] = []
+	for (const name of tableNames) {
+		const rows = await sql<{ exists: boolean }[]>`
+			SELECT EXISTS (
+				SELECT 1 FROM information_schema.tables
+				WHERE table_schema = 'public' AND table_name = ${name}
+			) AS exists
+		`
+		if (!rows[0]?.exists) {
+			missing.push(name)
+		}
+	}
 	if (missing.length > 0) {
 		throw new Error(`[${dbName}] missing required tables: ${missing.join(", ")}`)
 	}
