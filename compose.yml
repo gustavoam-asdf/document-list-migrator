@@ -1,6 +1,5 @@
 services:
   migrator:
-    container_name: dl-migrator
     image: ${DOCKER_REGISTRY_URL}/migrator-bun
     build:
       context: .
@@ -15,14 +14,17 @@ services:
       redis:
         condition: service_healthy
   database:
-    container_name: dl-database
     image: postgres:16-alpine
     restart: always
     hostname: ${DATABASE_HOST}
     ports:
       - ${DATABASE_PORT}:${DATABASE_PORT}
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U ${DATABASE_USER} -d ${DATABASE_NAME} -p ${DATABASE_PORT}" ]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${DATABASE_USER} -d ${DATABASE_NAME} -p ${DATABASE_PORT}",
+        ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -40,14 +42,13 @@ services:
       POSTGRES_DB: ${DATABASE_NAME}
       POSTGRES_PORT: ${DATABASE_PORT}
   redis:
-    container_name: dl-redis
     image: redis/redis-stack-server:7.2.0-v6
     restart: always
     hostname: ${REDIS_HOST}
     ports:
       - ${REDIS_PORT}:${REDIS_PORT}
     healthcheck:
-      test: [ "CMD-SHELL", "redis-cli -p ${REDIS_PORT} PING | grep -q PONG" ]
+      test: ["CMD-SHELL", "redis-cli -p ${REDIS_PORT} PING | grep -q PONG"]
       interval: 10s
       timeout: 5s
       retries: 5
