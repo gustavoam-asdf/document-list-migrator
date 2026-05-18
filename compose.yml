@@ -8,11 +8,11 @@ services:
     hostname: ${MIGRATOR_HOST}
     volumes:
       - ./files:/app/files
-    depends_on:
-      database:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+    # depends_on:
+    #   database:
+    #     condition: service_healthy
+    #   redis:
+    #     condition: service_healthy
   database:
     image: postgres:16-alpine
     restart: always
