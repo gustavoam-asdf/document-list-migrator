@@ -162,11 +162,12 @@ async function rotateIfNeeded(state: ChunkWriterState, label: string): Promise<v
 	if (state.linesInCurrent < FILE_LINES_SPLIT) {
 		return
 	}
+	const closedIndex = state.index
 	await state.writer.end()
 	state.index++
 	state.linesInCurrent = 0
 	state.writer = openChunkWriter(state.dir, state.index)
-	console.log(`[split] rotated ${label} → chunk_${state.index}.txt`)
+	console.log(`[split] ${label} chunk_${closedIndex}.txt full → opening chunk_${state.index}.txt`)
 }
 
 export async function updateRucsFile() {
