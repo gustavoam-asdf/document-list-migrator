@@ -1,14 +1,18 @@
 import postgres, { type Sql } from "postgres"
 
-// Keepalive: detectar sockets muertos en ~1-2 min en lugar de las horas
-// que tarda el default del kernel. Sin esto, si un worker muere su COPY
-// queda `idle in transaction` hasta que TCP timeout caiga.
-const KEEPALIVE_CONNECTION = {
-	keepalives: 1,
-	keepalives_idle: 60,
-	keepalives_interval: 10,
-	keepalives_count: 3,
-} as const
+// NOTA: los TCP keepalives NO se setean acá. El campo `connection` de
+// postgres.js manda los keys como startup parameters al servidor (como GUCs),
+// y `keepalives*` no son GUCs válidos — son params de libpq client-side.
+// La forma correcta de mitigar el problema de "COPY zombie idle in transaction"
+// es del lado del servidor Postgres:
+//   ALTER SYSTEM SET tcp_keepalives_idle = '60';
+//   ALTER SYSTEM SET tcp_keepalives_interval = '10';
+//   ALTER SYSTEM SET tcp_keepalives_count = '3';
+//   ALTER SYSTEM SET idle_in_transaction_session_timeout = '15min';
+//   SELECT pg_reload_conf();
+// Esto hace que el server detecte clientes muertos en ~1-2 min y cierre
+// las transacciones huérfanas. Sin esto, hay que esperar al TCP timeout
+// default del kernel (horas).
 
 export const primarySql = postgres({
 	host: Bun.env.DATABASE_HOST,
@@ -22,7 +26,6 @@ export const primarySql = postgres({
 	connect_timeout: 30,
 	prepare: false,
 	fetch_types: false,
-	connection: KEEPALIVE_CONNECTION,
 })
 
 export const secondarySql = postgres({
@@ -37,7 +40,6 @@ export const secondarySql = postgres({
 	connect_timeout: 30,
 	prepare: false,
 	fetch_types: false,
-	connection: KEEPALIVE_CONNECTION,
 })
 
 export type PingResult = {
