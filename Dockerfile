@@ -1,6 +1,6 @@
 # use the official Bun image
 # see all versions at https://hub.docker.com/r/oven/bun/tags
-FROM oven/bun:1-debian AS base
+FROM oven/bun:1.3.14-debian AS base
 WORKDIR /app
 
 # install dependencies into temp directory
@@ -29,8 +29,9 @@ COPY . .
 # copy production dependencies and source code into final image
 FROM base AS release
 
-RUN apt-get update
-RUN apt-get install unzip -y
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends unzip \
+ && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd --system --gid 1001 migrator-user
 RUN useradd --system --uid 1001 --gid migrator-user --no-create-home migrator-user
@@ -45,5 +46,4 @@ RUN chown -R migrator-user:migrator-user /app/files
 # run the app
 USER migrator-user
 
-EXPOSE 3000/tcp
-ENTRYPOINT bun start
+ENTRYPOINT ["bun", "src/index.ts"]

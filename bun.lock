@@ -1,5 +1,6 @@
 {
   "lockfileVersion": 1,
+  "configVersion": 0,
   "workspaces": {
     "": {
       "name": "document-list-migrator",
@@ -7,10 +8,10 @@
         "fflate": "0.8.2",
         "ioredis": "5.4.1",
         "postgres": "3.4.4",
-        "puppeteer": "22.12.1",
       },
       "devDependencies": {
         "@types/bun": "latest",
+        "puppeteer": "22.12.1",
       },
       "peerDependencies": {
         "typescript": "5.5.2",
