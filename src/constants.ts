@@ -39,3 +39,16 @@ export const WORKER_LIVENESS_TIMEOUT_MS = parseInt(Bun.env.MIGRATOR_WORKER_LIVEN
 // Tiempo que damos a los workers para drenar su batch actual y cerrar COPY
 // cuando recibimos SIGTERM/SIGINT. Si lo exceden, worker.terminate() forzado.
 export const SHUTDOWN_GRACE_MS = parseInt(Bun.env.MIGRATOR_SHUTDOWN_GRACE_MS || "60000", 10)
+
+// ===== Bulk load optimizations =====
+// maintenance_work_mem para el ADD PRIMARY KEY post-COPY. Más memoria = el sort
+// del CREATE INDEX cabe en RAM en vez de spillear a disco.
+export const MAINTENANCE_WORK_MEM = Bun.env.MIGRATOR_MAINTENANCE_WORK_MEM || "2GB"
+
+// Workers paralelos que Postgres usa internamente para CREATE INDEX.
+// Requiere max_parallel_workers del server >= valor.
+export const MAX_PARALLEL_MAINTENANCE_WORKERS = parseInt(Bun.env.MIGRATOR_MAX_PARALLEL_MAINTENANCE_WORKERS || "4", 10)
+
+// Feature flags por si alguna optimización causa problemas en prod.
+export const ENABLE_UNLOGGED = (Bun.env.MIGRATOR_ENABLE_UNLOGGED ?? "true") === "true"
+export const ENABLE_DROP_PK = (Bun.env.MIGRATOR_ENABLE_DROP_PK ?? "true") === "true"
