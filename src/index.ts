@@ -1,204 +1,157 @@
-import { WorkerProgressTracker, WorkerPromise } from "./WorkerPromise";
-import { dnisDir, rucsDir } from "./constants";
-import { dropConstraintSafely, recreateConstraintSafely } from "./constraintManager";
-import { primarySql, secondarySql } from "./db";
+import { dnisDir, rejectsDir, rucsDir } from "./constants";
+import { dropConstraintSafely, recreateConstraintSafely } from "./constraints/constraintManager";
+import { getMaxConnections, primarySql, secondarySql } from "./db";
+import { installSignalHandlers, shouldExit, shutdownReasonText } from "./shared/shutdown";
+import { runPhase, type PhaseResult } from "./supervisor/runPhase";
 
 import fs from "node:fs/promises";
 import { redis } from "./redis";
-import { updateRucsFile } from "./updateRucsFile";
+import { updateRucsFile } from "./split/updateRucsFile";
 
 const startTime = Date.now();
+console.log(`PID: ${process.pid}`);
 
-const pid = process.pid;
-console.log(`PID: ${pid}`);
+installSignalHandlers();
 
-const { dniChunkFiles, rucChunkFiles } = await updateRucsFile()
-	.then(res => {
-		console.log("Updated document files");
-		return res;
-	})
-	.catch(error => {
-		console.warn("Error updating document, will try again...")
-		console.warn(error);
-		return updateRucsFile()
-			.catch(err => {
-				console.error("Error updating document again, exiting...");
-				console.error(err)
-				process.exit(1);
-			})
-	})
-
-console.log(`Found ${dniChunkFiles.length} DNI chunk files and ${rucChunkFiles.length} RUC chunk files`);
-
-const secondaryTimeStart = Date.now();
-
-// Desactivar FK constraint para mejorar rendimiento de INSERT masivo
-await dropConstraintSafely(secondarySql, "secondary");
-
-console.log("Truncating secondary tables...");
-await secondarySql.begin(async sql => {
-	await sql`TRUNCATE "PersonaNatural"`
-	await sql`TRUNCATE "PersonaJuridica"`
-
-	console.log("Truncated secondary tables");
-})
-
-console.log(`Creating ${dniChunkFiles.length} DNI workers and ${rucChunkFiles.length} RUC workers for secondary database`);
-
-const secondaryDniProgressTracker = new WorkerProgressTracker(dniChunkFiles.length, (result, totals) => {
-	console.log(`[secondary-dni] Worker ${result.workerName} finished: ${result.count.toLocaleString()} records | Progress: ${totals.completedWorkers}/${totals.totalWorkers} workers | Total DNIs: ${totals.totalRecords.toLocaleString()}`);
-});
-
-const secondaryRucProgressTracker = new WorkerProgressTracker(rucChunkFiles.length, (result, totals) => {
-	console.log(`[secondary-ruc] Worker ${result.workerName} finished: ${result.count.toLocaleString()} records | Progress: ${totals.completedWorkers}/${totals.totalWorkers} workers | Total RUCs: ${totals.totalRecords.toLocaleString()}`);
-});
-
-// Create parallel workers for secondary database
-const secondaryDniStartTime = Date.now();
-const secondaryDniPromise = Promise.all(
-	dniChunkFiles.map((filePath, index) =>
-		WorkerPromise({
-			workerPath: "./workers/dniWorker.ts",
-			name: `dni-secondary-${index}`,
-			startMessage: {
-				filePath,
-				useSecondaryDb: true,
-			},
-			progressTracker: secondaryDniProgressTracker,
-		})
-	)
-).then(() => {
-	const totals = secondaryDniProgressTracker.getTotals();
-	console.log(`Done secondary DNI in ${Date.now() - secondaryDniStartTime}ms | Total DNIs: ${totals.totalRecords.toLocaleString()}`);
-});
-
-const secondaryRucStartTime = Date.now();
-const secondaryRucPromise = Promise.all(
-	rucChunkFiles.map((filePath, index) =>
-		WorkerPromise({
-			workerPath: "./workers/rucWorker.ts",
-			name: `ruc-secondary-${index}`,
-			startMessage: {
-				filePath,
-				useSecondaryDb: true,
-			},
-			progressTracker: secondaryRucProgressTracker,
-		})
-	)
-).then(() => {
-	const totals = secondaryRucProgressTracker.getTotals();
-	console.log(`Done secondary RUC in ${Date.now() - secondaryRucStartTime}ms | Total RUCs: ${totals.totalRecords.toLocaleString()}`);
-});
-
-await Promise.all([secondaryDniPromise, secondaryRucPromise]).then(() => {
-	const dniTotals = secondaryDniProgressTracker.getTotals();
-	const rucTotals = secondaryRucProgressTracker.getTotals();
-	console.log(`Done secondary DB in ${Date.now() - secondaryTimeStart}ms | DNIs: ${dniTotals.totalRecords.toLocaleString()} | RUCs: ${rucTotals.totalRecords.toLocaleString()}`);
-});
-
-// Recrear FK constraint después del INSERT masivo
-await recreateConstraintSafely(secondarySql, "secondary");
-
-type UpdateDataState = {
-	isUpdating: false
-	lastUpdateAt: Date
-} | {
-	isUpdating: true
-	startedAt: Date
+async function shutdownAndExit(code: number): Promise<never> {
+	console.log("[main] closing pools and exiting");
+	try { await Promise.race([primarySql.end({ timeout: 5 }), wait(7_000)]) } catch (e) { console.warn("[main] primarySql.end failed", e) }
+	try { await Promise.race([secondarySql.end({ timeout: 5 }), wait(7_000)]) } catch (e) { console.warn("[main] secondarySql.end failed", e) }
+	try { redis.disconnect() } catch (e) { console.warn("[main] redis.disconnect failed", e) }
+	process.exit(code);
 }
 
-const stateKey = "document-list:update-data-state";
-const updatingState: UpdateDataState = {
-	isUpdating: true,
-	startedAt: new Date(),
-};
+function wait(ms: number) {
+	return new Promise<void>(resolve => setTimeout(resolve, ms))
+}
 
-console.log("Setting state to updating");
+function exitIfShuttingDown(stage: string): void {
+	if (shouldExit()) {
+		console.warn(`[main] shutdown active (${shutdownReasonText()}) — skipping ${stage}`)
+	}
+}
+
+const splitResult = await updateRucsFile()
+	.catch(async error => {
+		console.warn("[main] split failed, retrying once...", error);
+		return updateRucsFile().catch(err => {
+			console.error("[main] split failed twice, exiting:", err);
+			return shutdownAndExit(1);
+		});
+	});
+
+if (!splitResult) {
+	await shutdownAndExit(1);
+}
+
+const { dniChunkFiles, rucChunkFiles, parseStats } = splitResult;
+
+console.log(
+	`[main] split summary | source=${parseStats.totalSourceLines.toLocaleString()} ` +
+	`| dni=${parseStats.totalDniEmitted.toLocaleString()} (${dniChunkFiles.length} chunks, ${parseStats.dniRejectCount} rejects) ` +
+	`| ruc=${parseStats.totalRucEmitted.toLocaleString()} (${rucChunkFiles.length} chunks, ${parseStats.rucRejectCount} rejects)`,
+);
+
+type UpdateDataState =
+	| { isUpdating: false; lastUpdateAt: Date }
+	| { isUpdating: true; startedAt: Date }
+
+const stateKey = "document-list:update-data-state";
+
+function logPhaseSummary(result: PhaseResult) {
+	console.log(
+		`\n========== PHASE ${result.phase.toUpperCase()} ==========\n` +
+		`elapsed: ${(result.elapsedMs / 1000).toFixed(1)}s\n` +
+		`rows inserted: ${result.totalInserted.toLocaleString()} ` +
+		`(dni ${result.dniInserted.toLocaleString()} + ruc ${result.rucInserted.toLocaleString()})\n` +
+		`rows rejected: ${result.totalRejected}\n` +
+		`rows terminated workers: ${result.terminatedWorkers}\n` +
+		`shutdown triggered: ${result.shutdownTriggered}\n` +
+		`throughput avg: ${Math.round(result.avgRps).toLocaleString()} rps\n` +
+		`concurrency: initial=${result.initialTarget} peak=${result.peakConcurrency} ` +
+		`final=${result.finalTarget} max=${result.maxConcurrency}\n` +
+		`rejects dir: ${rejectsDir}\n` +
+		`==================================\n`,
+	);
+}
+
+// ============ SECONDARY PHASE ============
+const secondaryMaxConnections = await getMaxConnections(secondarySql);
+await dropConstraintSafely(secondarySql, "secondary");
+
+console.log("[main] truncating secondary tables...");
+await secondarySql.begin(async sql => {
+	await sql`TRUNCATE "PersonaNatural"`;
+	await sql`TRUNCATE "PersonaJuridica"`;
+});
+
+const secondaryResult = await runPhase({
+	phase: "secondary",
+	useSecondaryDb: true,
+	dniChunkFiles,
+	rucChunkFiles,
+	maxConnections: secondaryMaxConnections,
+});
+logPhaseSummary(secondaryResult);
+
+if (!secondaryResult.shutdownTriggered) {
+	await recreateConstraintSafely(secondarySql, "secondary");
+} else {
+	console.warn("[main] skipping FK recreate on secondary — phase was aborted");
+	await shutdownAndExit(130);
+}
+
+exitIfShuttingDown("primary phase");
+if (shouldExit()) await shutdownAndExit(130);
+
+// ============ SWITCH FLAG ============
+console.log("[main] setting redis state to updating");
+const updatingState: UpdateDataState = { isUpdating: true, startedAt: new Date() };
 await redis.set(stateKey, JSON.stringify(updatingState));
 
-const primaryTimeStart = Date.now();
-
-// Desactivar FK constraint para mejorar rendimiento de INSERT masivo
+// ============ PRIMARY PHASE ============
+const primaryMaxConnections = await getMaxConnections(primarySql);
 await dropConstraintSafely(primarySql, "primary");
 
-console.log("Truncating primary tables...");
+console.log("[main] truncating primary tables...");
 await primarySql.begin(async sql => {
-	await sql`TRUNCATE "PersonaNatural"`
-	await sql`TRUNCATE "PersonaJuridica"`
-
-	console.log("Truncated primary tables");
-})
-
-console.log(`Creating ${dniChunkFiles.length} DNI workers and ${rucChunkFiles.length} RUC workers for primary database`);
-
-const primaryDniProgressTracker = new WorkerProgressTracker(dniChunkFiles.length, (result, totals) => {
-	console.log(`[primary-dni] Worker ${result.workerName} finished: ${result.count.toLocaleString()} records | Progress: ${totals.completedWorkers}/${totals.totalWorkers} workers | Total DNIs: ${totals.totalRecords.toLocaleString()}`);
+	await sql`TRUNCATE "PersonaNatural"`;
+	await sql`TRUNCATE "PersonaJuridica"`;
 });
 
-const primaryRucProgressTracker = new WorkerProgressTracker(rucChunkFiles.length, (result, totals) => {
-	console.log(`[primary-ruc] Worker ${result.workerName} finished: ${result.count.toLocaleString()} records | Progress: ${totals.completedWorkers}/${totals.totalWorkers} workers | Total RUCs: ${totals.totalRecords.toLocaleString()}`);
+const primaryResult = await runPhase({
+	phase: "primary",
+	useSecondaryDb: false,
+	dniChunkFiles,
+	rucChunkFiles,
+	maxConnections: primaryMaxConnections,
 });
+logPhaseSummary(primaryResult);
 
-// Create parallel workers for primary database
-const primaryDniStartTime = Date.now();
-const primaryDniPromise = Promise.all(
-	dniChunkFiles.map((filePath, index) =>
-		WorkerPromise({
-			workerPath: "./workers/dniWorker.ts",
-			name: `dni-primary-${index}`,
-			startMessage: {
-				filePath,
-				useSecondaryDb: false,
-			},
-			progressTracker: primaryDniProgressTracker,
-		})
-	)
-).then(() => {
-	const totals = primaryDniProgressTracker.getTotals();
-	console.log(`Done primary DNI in ${Date.now() - primaryDniStartTime}ms | Total DNIs: ${totals.totalRecords.toLocaleString()}`);
-});
+if (!primaryResult.shutdownTriggered) {
+	await recreateConstraintSafely(primarySql, "primary");
+} else {
+	console.warn("[main] skipping FK recreate on primary — phase was aborted");
+	// Dejamos el flag en updating para que los lectores no asuman datos completos.
+	await shutdownAndExit(130);
+}
 
-const primaryRucStartTime = Date.now();
-const primaryRucPromise = Promise.all(
-	rucChunkFiles.map((filePath, index) =>
-		WorkerPromise({
-			workerPath: "./workers/rucWorker.ts",
-			name: `ruc-primary-${index}`,
-			startMessage: {
-				filePath,
-				useSecondaryDb: false,
-			},
-			progressTracker: primaryRucProgressTracker,
-		})
-	)
-).then(() => {
-	const totals = primaryRucProgressTracker.getTotals();
-	console.log(`Done primary RUC in ${Date.now() - primaryRucStartTime}ms | Total RUCs: ${totals.totalRecords.toLocaleString()}`);
-});
-
-await Promise.all([primaryDniPromise, primaryRucPromise]).then(() => {
-	const dniTotals = primaryDniProgressTracker.getTotals();
-	const rucTotals = primaryRucProgressTracker.getTotals();
-	console.log(`Done primary DB in ${Date.now() - primaryTimeStart}ms | DNIs: ${dniTotals.totalRecords.toLocaleString()} | RUCs: ${rucTotals.totalRecords.toLocaleString()}`);
-});
-
-// Recrear FK constraint después del INSERT masivo
-await recreateConstraintSafely(primarySql, "primary");
-
-const endTime = Date.now();
-
-const nonUpdatingState: UpdateDataState = {
-	isUpdating: false,
-	lastUpdateAt: new Date(),
-};
-
-console.log("Setting state to non-updating");
+// ============ FINAL FLAG + CLEANUP ============
+const nonUpdatingState: UpdateDataState = { isUpdating: false, lastUpdateAt: new Date() };
+console.log("[main] setting redis state to non-updating");
 await redis.set(stateKey, JSON.stringify(nonUpdatingState));
 
-console.log("Removing chunk files...");
+console.log("[main] removing chunk dirs");
 await fs.rm(dnisDir, { recursive: true });
 await fs.rm(rucsDir, { recursive: true });
 
-console.log(`Done all in ${endTime - startTime}ms`);
+const totalElapsed = Date.now() - startTime;
+console.log(
+	`\n========== ALL DONE in ${(totalElapsed / 1000).toFixed(1)}s ==========\n` +
+	`secondary: ${secondaryResult.totalInserted.toLocaleString()} inserted, ${secondaryResult.totalRejected} rejected\n` +
+	`primary:   ${primaryResult.totalInserted.toLocaleString()} inserted, ${primaryResult.totalRejected} rejected\n` +
+	`parse rejects: dni=${parseStats.dniRejectCount}, ruc=${parseStats.rucRejectCount}\n` +
+	`rejects directory preserved at: ${rejectsDir}\n`,
+);
 
-process.exit(0);
+await shutdownAndExit(0);
