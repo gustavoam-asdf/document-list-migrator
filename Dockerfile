@@ -6,6 +6,10 @@ WORKDIR /app
 # install dependencies into temp directory
 # this will cache them and speed up future builds
 FROM base AS install
+# puppeteer (devDependency, only used by the one-off script/ubigeoScrapper.ts)
+# tries to download Chrome in its postinstall, which fails in this stage
+# (no tar/unzip). It is never needed in the final image, so skip the download.
+ENV PUPPETEER_SKIP_DOWNLOAD=1
 RUN mkdir -p /temp/dev
 COPY package.json bun.lock /temp/dev/
 RUN cd /temp/dev && bun install --frozen-lockfile
