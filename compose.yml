@@ -1,6 +1,6 @@
 services:
   migrator:
-    image: ${DOCKER_REGISTRY_URL}/migrator-bun
+    image: ${DOCKER_REGISTRY_URL}/migrator:1.0.0
     build:
       context: .
     env_file:
