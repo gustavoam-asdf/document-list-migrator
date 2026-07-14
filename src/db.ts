@@ -14,13 +14,20 @@ import postgres, { type Sql } from "postgres"
 // las transacciones huérfanas. Sin esto, hay que esperar al TCP timeout
 // default del kernel (horas).
 
+// TLS: cifrar sin verificar la cadena. RDS presenta un cert firmado por el
+// Amazon RDS CA, que no está en el trust store del sistema; `ssl: true` (verify)
+// lo rechaza con "self signed certificate in certificate chain". Como la conexión
+// va dentro del VPC por membresía de SG, ciframos pero no verificamos el CA
+// (equivale a `sslmode=require`, lo mismo que usa el api con Prisma).
+const sslConfig = Bun.env.DATABASE_USE_SSL === "true" ? { rejectUnauthorized: false } : false
+
 export const primarySql = postgres({
 	host: Bun.env.DATABASE_HOST,
 	port: Number(Bun.env.DATABASE_PORT),
 	database: Bun.env.DATABASE_NAME,
 	username: Bun.env.DATABASE_USER,
 	password: Bun.env.DATABASE_PASSWORD,
-	ssl: Bun.env.DATABASE_USE_SSL === "true",
+	ssl: sslConfig,
 	max: 5,
 	idle_timeout: 30,
 	connect_timeout: 30,
@@ -34,7 +41,7 @@ export const secondarySql = postgres({
 	database: Bun.env.DATABASE_NAME_SECONDARY,
 	username: Bun.env.DATABASE_USER,
 	password: Bun.env.DATABASE_PASSWORD,
-	ssl: Bun.env.DATABASE_USE_SSL === "true",
+	ssl: sslConfig,
 	max: 5,
 	idle_timeout: 30,
 	connect_timeout: 30,
