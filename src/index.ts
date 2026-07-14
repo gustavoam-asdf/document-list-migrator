@@ -2,6 +2,7 @@ import { dnisDir, rejectsDir, rucsDir } from "./constants";
 import { finalizeTablesAfterBulkLoad, prepareTablesForBulkLoad } from "./constraints/tableLifecycle";
 import { installSignalHandlers, shouldExit, shutdownReasonText } from "./shared/shutdown";
 import { pingDb, primarySql, secondarySql, verifyTables } from "./db";
+import { countUbigeos, refreshUbigeoTable, resolveUbigeoRows } from "./ubigeo";
 import { runPhase, type PhaseResult } from "./supervisor/runPhase";
 
 import fs from "node:fs/promises";
@@ -10,6 +11,11 @@ import { updateRucsFile } from "./split/updateRucsFile";
 
 const startTime = Date.now();
 console.log(`PID: ${process.pid}`);
+
+// Ubigeo is refreshed weekly (Sundays, UTC — the job runs at 05:00 UTC) to avoid
+// hitting SEACE every day; on any other day it is left as-is unless the table is
+// empty (bootstrap). The scrape itself happens at most once per run (see getUbigeos).
+const isSunday = new Date().getUTCDay() === 0;
 
 installSignalHandlers();
 
@@ -77,6 +83,18 @@ async function runFullPhase(phase: "secondary" | "primary", useSecondaryDb: bool
 
 	const ping = await pingDb(sql, phase)
 	await verifyTables(sql, phase, ["PersonaNatural", "PersonaJuridica"])
+
+	// Keep Ubigeo current before loading personas (their codigoUbigeo FK references
+	// it). Refresh on Sundays or when the table is empty (bootstrap); skip otherwise
+	// so a daily run does not re-scrape SEACE. Upsert only — never deletes codes.
+	const ubigeoCount = await countUbigeos(sql)
+	if (isSunday || ubigeoCount === 0) {
+		const reason = ubigeoCount === 0 ? "empty table (bootstrap)" : "weekly refresh (Sunday)"
+		console.log(`[${phase}] refreshing Ubigeo: ${reason}`)
+		await refreshUbigeoTable(sql, phase, await resolveUbigeoRows(sql))
+	} else {
+		console.log(`[${phase}] Ubigeo left as-is (${ubigeoCount} rows, not Sunday)`)
+	}
 
 	const prepStart = Date.now()
 	await prepareTablesForBulkLoad(sql, phase)
