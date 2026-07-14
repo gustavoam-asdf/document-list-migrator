@@ -138,6 +138,32 @@ async function finalizePersonaJuridica(sql: Sql, dbName: string): Promise<void> 
 			await tx`ALTER TABLE ${tx(PERSONA_JURIDICA.name)} ADD CONSTRAINT ${tx(PERSONA_JURIDICA.pkConstraint)} PRIMARY KEY (${tx(PERSONA_JURIDICA.pkColumn)})`
 			console.log(`[${dbName}] ${PERSONA_JURIDICA.name} PK recreated in ${Date.now() - tPk}ms`)
 		}
+
+		// Null any codigoUbigeo not present in Ubigeo before re-adding the FK. The
+		// SEACE reference can lag SUNAT (a code SUNAT already uses that SEACE has not
+		// listed yet, e.g. a gap like 250307), and one such code must not fail the
+		// whole 18M-row load. The column is nullable / ON DELETE SET NULL, so an
+		// unknown location just becomes NULL. Log which codes were nulled.
+		const orphans = await tx<{ codigo: string; n: string }[]>`
+			SELECT pj."codigoUbigeo" AS codigo, count(*)::text AS n
+			FROM ${tx(PERSONA_JURIDICA.name)} pj
+			WHERE pj."codigoUbigeo" IS NOT NULL
+				AND NOT EXISTS (SELECT 1 FROM "Ubigeo" u WHERE u.codigo = pj."codigoUbigeo")
+			GROUP BY pj."codigoUbigeo"
+			ORDER BY pj."codigoUbigeo"
+		`
+		if (orphans.length > 0) {
+			const summary = orphans.map(o => `${o.codigo}(${o.n})`).join(", ")
+			console.warn(
+				`[${dbName}] ${PERSONA_JURIDICA.name}: nulling ${orphans.length} ubigeo(s) not in Ubigeo -> ${summary}`,
+			)
+			await tx`
+				UPDATE ${tx(PERSONA_JURIDICA.name)} pj SET "codigoUbigeo" = NULL
+				WHERE pj."codigoUbigeo" IS NOT NULL
+					AND NOT EXISTS (SELECT 1 FROM "Ubigeo" u WHERE u.codigo = pj."codigoUbigeo")
+			`
+		}
+
 		const tFk = Date.now()
 		await tx.unsafe(
 			`ALTER TABLE "${PERSONA_JURIDICA.name}" ADD CONSTRAINT "${FK_NAME}" ` +
