@@ -4,6 +4,9 @@
 
 files
 logs
+
+# Local exploration tooling (browser MCP for one-off traffic analysis; not part of the migrator)
+.mcp.json
 _.log
 npm-debug.log_
 yarn-debug.log*

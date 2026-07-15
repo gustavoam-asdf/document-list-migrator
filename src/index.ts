@@ -2,6 +2,7 @@ import { dnisDir, rejectsDir, rucsDir } from "./constants";
 import { finalizeTablesAfterBulkLoad, prepareTablesForBulkLoad } from "./constraints/tableLifecycle";
 import { installSignalHandlers, shouldExit, shutdownReasonText } from "./shared/shutdown";
 import { pingDb, primarySql, secondarySql, verifyTables } from "./db";
+import { countUbigeos, getUbigeos, refreshUbigeoTable } from "./ubigeo";
 import { runPhase, type PhaseResult } from "./supervisor/runPhase";
 
 import fs from "node:fs/promises";
@@ -10,6 +11,12 @@ import { updateRucsFile } from "./split/updateRucsFile";
 
 const startTime = Date.now();
 console.log(`PID: ${process.pid}`);
+
+// Ubigeo is refreshed from INEI weekly (Sundays, UTC — the job runs at 05:00 UTC) or
+// when the table is empty (bootstrap). Other days it is left as-is so we do not hit
+// INEI daily. The FK on codigoUbigeo is dropped, so this is best-effort: a fetch
+// failure is logged and the load continues with whatever is already in the table.
+const isSunday = new Date().getUTCDay() === 0;
 
 installSignalHandlers();
 
@@ -77,6 +84,22 @@ async function runFullPhase(phase: "secondary" | "primary", useSecondaryDb: bool
 
 	const ping = await pingDb(sql, phase)
 	await verifyTables(sql, phase, ["PersonaNatural", "PersonaJuridica"])
+
+	// Refresh Ubigeo from INEI on Sundays or when empty (bootstrap). Best-effort: the
+	// FK is dropped, so a failure here must not abort the persona load.
+	const ubigeoCount = await countUbigeos(sql)
+	const forceRefresh = Bun.env.UBIGEO_FORCE_REFRESH === "true"
+	if (isSunday || ubigeoCount === 0 || forceRefresh) {
+		const reason = ubigeoCount === 0 ? "empty table (bootstrap)" : forceRefresh ? "forced" : "weekly refresh (Sunday)"
+		try {
+			console.log(`[${phase}] refreshing Ubigeo from INEI: ${reason}`)
+			await refreshUbigeoTable(sql, phase, await getUbigeos())
+		} catch (err) {
+			console.warn(`[${phase}] Ubigeo refresh failed, continuing with existing table:`, (err as Error).message)
+		}
+	} else {
+		console.log(`[${phase}] Ubigeo left as-is (${ubigeoCount} rows, not Sunday)`)
+	}
 
 	const prepStart = Date.now()
 	await prepareTablesForBulkLoad(sql, phase)
