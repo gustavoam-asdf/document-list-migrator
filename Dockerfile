@@ -29,10 +29,10 @@ COPY . .
 # copy production dependencies and source code into final image
 FROM base AS release
 
-# curl: las descargas grandes (padrón, snapshots de S3) no pasan por la red de Bun,
-# que en Linux retiene en memoria lo descargado (OOM con ruc.tsv de 1,7 GB).
+# curl y psql: las transferencias grandes (padrón, snapshots de S3, volcado de la BD)
+# no pasan por el runtime de Bun, que retiene en memoria lo transferido (OOM en Fargate).
 RUN apt-get update \
- && apt-get install -y --no-install-recommends unzip curl ca-certificates \
+ && apt-get install -y --no-install-recommends unzip curl ca-certificates postgresql-client \
  && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd --system --gid 1001 migrator-user

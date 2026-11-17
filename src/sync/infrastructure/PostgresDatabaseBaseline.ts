@@ -1,29 +1,38 @@
+import { $ } from "bun"
 import fs from "node:fs/promises"
 import type { Sql } from "postgres"
 
 import type { DatabaseBaseline } from "../application/DatabaseBaseline"
 import type { Entity } from "../domain/Entity"
 import type { LineChunks } from "../domain/diffSortedSnapshots"
-import { KeyOrderTrackingWriter } from "./KeyOrderTrackingWriter"
 import { PERSONA_TABLES } from "./personaTables"
-import { escapeCopyField } from "../../copy/escapeCopyField"
+import type { RateLimiter } from "../../shared/RateLimiter"
 import { fileLineChunks } from "../../stream/fileLineChunks"
+import { sortTsvByKey } from "./sortTsvByKey"
 
 type Paging = {
-	pageRows: number
-	pauseMs: number
+	// Bloques de 8 KB por consulta (2048 ≈ 16 MB de tabla).
+	pageBlocks: number
+	// Compartido por los volcados concurrentes: el tope de filas/s vale para el total.
+	limiter: RateLimiter
 }
 
-// Último recurso: el baseline es lo que la BD tiene hoy. Solo lee, por páginas de
-// clave (keyset sobre la PK) con pausa entre páginas: cada página es una consulta
-// corta por índice, no un seq scan de minutos que compita con las lecturas del api
-// ni un snapshot largo que frene al autovacuum.
-//
-// SELECT y no `COPY ... TO STDOUT`: con dos volcados concurrentes, el readable de
-// COPY TO de postgres.js a veces no cierra aunque el servidor ya terminó.
+// Variables PG* para psql (PGHOST, PGPORT, PGUSER, PGPASSWORD, PGDATABASE, PGSSLMODE).
+export type PsqlEnv = Record<string, string>
+
+// Último recurso: el baseline es lo que la BD tiene hoy. Solo lee.
+// - Por rangos de bloques físicos (`ctid`, TID Range Scan, Postgres 14+): lecturas
+//   contiguas en orden de disco. Paginar por la PK saltaba por todo el heap (lecturas
+//   aleatorias) y llevó la RDS al techo de IOPS.
+// - Con `psql \copy` como subproceso, de la BD al archivo: 34M filas a través de
+//   postgres.js/Bun dejaron la memoria del proceso creciendo ~200 MB/s en Fargate (OOM).
+//   psql usa memoria constante y el formato es el COPY TO del servidor, idéntico al
+//   del snapshot.
+// La salida queda en orden físico: la ordena el sort del contenedor.
 export class PostgresDatabaseBaseline implements DatabaseBaseline {
 	constructor(
 		private readonly sql: Sql,
+		private readonly psqlEnv: PsqlEnv,
 		private readonly workDir: string,
 		private readonly paging: Paging,
 	) {}
@@ -31,61 +40,57 @@ export class PostgresDatabaseBaseline implements DatabaseBaseline {
 	async dump(entity: Entity): Promise<LineChunks> {
 		const spec = PERSONA_TABLES[entity]
 		await fs.mkdir(this.workDir, { recursive: true })
+		const raw = `${this.workDir}/${entity}.dump.tsv`
 		const sorted = `${this.workDir}/${entity}.tsv`
-		const writer = new KeyOrderTrackingWriter(`${this.workDir}/${entity}.dump.tsv`)
+		await fs.rm(raw, { force: true })
 		const columns = spec.columns.map(c => `"${c}"`).join(", ")
-		const key = `"${spec.key}"`
-		const firstPage = `SELECT ${columns} FROM "${spec.table}" ORDER BY ${key} LIMIT ${this.paging.pageRows}`
-		const nextPage = `SELECT ${columns} FROM "${spec.table}" WHERE ${key} > $1 ORDER BY ${key} LIMIT ${this.paging.pageRows}`
 
 		const start = Date.now()
-		let lastKey: string | undefined
-		let pages = 0
-		for (;;) {
-			const rows = await this.sql.unsafe<Record<string, unknown>[]>(
-				lastKey === undefined ? firstPage : nextPage,
-				lastKey === undefined ? [] : [lastKey],
-			)
-			pages++
-			for (const row of rows) {
-				const flushing = writer.write(toCopyLine(row, spec.columns))
-				if (flushing) {
-					await flushing
-				}
-			}
-
-			const last = rows.at(-1)
-			if (last === undefined || rows.length < this.paging.pageRows) {
-				break
-			}
-			lastKey = textField(last[spec.key], spec.key)
-			if (this.paging.pauseMs > 0) {
-				await Bun.sleep(this.paging.pauseMs)
-			}
+		// Leído al empezar: el migrador tiene el lock de sync y el api no escribe en estas
+		// tablas, así que no aparecen filas nuevas en bloques posteriores durante el volcado.
+		const totalBlocks = await this.#relationBlocks(spec.table)
+		let rows = 0
+		let queries = 0
+		for (let first = 0; first < totalBlocks; first += this.paging.pageBlocks) {
+			const range = `ctid >= '(${first},0)'::tid AND ctid < '(${first + this.paging.pageBlocks},0)'::tid`
+			const copied = await this.#copyAppend(`SELECT ${columns} FROM "${spec.table}" WHERE ${range}`, raw)
+			rows += copied
+			queries++
+			await this.paging.limiter.consume(copied)
 		}
 
-		const { sortedExternally } = await writer.finish(sorted, `${this.workDir}/tmp`)
+		await sortTsvByKey(raw, sorted, `${this.workDir}/tmp-${entity}`)
 		console.log(
-			`[sync] volcado de ${spec.table}: ${writer.rows} filas en ${pages} páginas, ${Date.now() - start}ms` +
-			(sortedExternally ? " (con sort externo)" : ""),
+			`[sync] volcado de ${spec.table}: ${rows} filas, ${totalBlocks} bloques en ${queries} consultas, ${Date.now() - start}ms`,
 		)
 		return fileLineChunks(sorted)
 	}
-}
 
-// Misma forma que una fila del snapshot (y que `COPY ... TO STDOUT`): `\N` = NULL.
-function toCopyLine(row: Record<string, unknown>, columns: readonly string[]): string {
-	return columns
-		.map(column => {
-			const value = row[column]
-			return value === null ? "\\N" : escapeCopyField(textField(value, column))
-		})
-		.join("\t")
-}
-
-function textField(value: unknown, column: string): string {
-	if (typeof value !== "string") {
-		throw new Error(`volcado: la columna ${column} no es texto (${typeof value})`)
+	// Agrega al archivo el resultado de la consulta; devuelve las filas copiadas.
+	async #copyAppend(select: string, file: string): Promise<number> {
+		const command = `\\copy (${select}) TO PROGRAM 'cat >> ${file}'`
+		const result = await $`psql --no-psqlrc --set ON_ERROR_STOP=1 --command ${command}`
+			.env({ ...process.env, ...this.psqlEnv })
+			.nothrow()
+			.quiet()
+		if (result.exitCode !== 0) {
+			throw new Error(`psql \\copy falló (exit ${result.exitCode}): ${result.stderr.toString().trim()}`)
+		}
+		const match = /COPY (\d+)/.exec(result.stdout.toString())
+		if (!match?.[1]) {
+			throw new Error(`psql \\copy no informó filas copiadas: ${result.stdout.toString().trim()}`)
+		}
+		return Number(match[1])
 	}
-	return value
+
+	async #relationBlocks(table: string): Promise<number> {
+		const rows = await this.sql<{ blocks: unknown }[]>`
+			SELECT (pg_relation_size(${`public."${table}"`}::regclass) / current_setting('block_size')::bigint)::int AS blocks
+		`
+		const blocks = rows[0]?.blocks
+		if (typeof blocks !== "number") {
+			throw new Error(`volcado: no se pudo leer el tamaño de ${table}`)
+		}
+		return blocks
+	}
 }

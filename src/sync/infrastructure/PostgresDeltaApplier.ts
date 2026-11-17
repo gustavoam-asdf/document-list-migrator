@@ -8,6 +8,7 @@ import { PERSONA_TABLES, type TableSpec } from "./personaTables"
 import { extractPgErrorDetails } from "../../errors/pgErrorDetails"
 import { isConnectionError } from "../../errors/isConnectionError"
 import { rowKey } from "../domain/rowKey"
+import type { RateLimiter } from "../../shared/RateLimiter"
 
 const MAX_ATTEMPTS = 5
 const RETRY_BASE_DELAY_MS = 1000
@@ -61,9 +62,9 @@ export class PostgresDeltaApplier implements DeltaApplier {
 
 	constructor(
 		private readonly sql: Sql,
-		// Respiro entre commits para acotar el ritmo de escritura (WAL, I/O) y dejar
-		// margen a las lecturas del api aunque el delta del día sea grande.
-		private readonly pauseMs: number,
+		// Acota las filas escritas por segundo (WAL, I/O) para dejar margen a las lecturas
+		// del api aunque el delta sea grande. Compartido por dni y ruc: el tope es del total.
+		private readonly limiter: RateLimiter,
 	) {}
 
 	async apply(stream: DeltaStream, items: string[]): Promise<void> {
@@ -76,9 +77,7 @@ export class PostgresDeltaApplier implements DeltaApplier {
 	async #applyIsolatingBadRows(stream: DeltaStream, entity: Entity, op: DeltaOp, items: string[]): Promise<void> {
 		try {
 			await this.#withRetry(() => this.#commitBatch(stream, entity, op, items))
-			if (this.pauseMs > 0) {
-				await Bun.sleep(this.pauseMs)
-			}
+			await this.limiter.consume(items.length)
 		} catch (error) {
 			if (op !== "upsert" || !isDataError(error)) {
 				throw error

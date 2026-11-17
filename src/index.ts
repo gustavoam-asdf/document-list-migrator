@@ -1,13 +1,13 @@
 import {
-	BASELINE_PAGE_PAUSE_MS,
-	BASELINE_PAGE_ROWS,
+	BASELINE_MAX_ROWS_PER_SEC,
+	BASELINE_PAGE_BLOCKS,
 	MEMORY_SAMPLE_MS,
 	FORCE_DATABASE_BASELINE,
 	SNAPSHOT_BUCKET,
 	SNAPSHOT_ENDPOINT,
 	SNAPSHOT_PREFIX,
 	SNAPSHOT_REGION,
-	SYNC_BATCH_PAUSE_MS,
+	SYNC_MAX_ROWS_PER_SEC,
 	SYNC_BATCH_ROWS,
 	baselineWorkDir,
 	rejectsDir,
@@ -32,13 +32,17 @@ import { redis } from "./redis"
 import { runIncrementalSync, type SyncResult } from "./sync/application/runIncrementalSync"
 import { logEvent } from "./shared/logEvent"
 import { startMemorySampler } from "./shared/startMemorySampler"
+import { RateLimiter } from "./shared/RateLimiter"
+import { primaryPsqlEnv } from "./psqlEnv"
 import { verifyUpsertPrerequisites } from "./sync/infrastructure/verifyUpsertPrerequisites"
 
 const startTime = Date.now()
 console.log(`PID: ${process.pid}`)
 
 installSignalHandlers()
-startMemorySampler(MEMORY_SAMPLE_MS)
+if (MEMORY_SAMPLE_MS > 0) {
+	startMemorySampler(MEMORY_SAMPLE_MS)
+}
 
 const stateKey = "document-list:update-data-state"
 
@@ -80,7 +84,7 @@ function warn(component: string, message: string): void {
 	logEvent({ event: "sync_warning", level: "error", component, message })
 }
 
-const applier = new PostgresDeltaApplier(primarySql, SYNC_BATCH_PAUSE_MS)
+const applier = new PostgresDeltaApplier(primarySql, new RateLimiter(SYNC_MAX_ROWS_PER_SEC))
 const state = new PostgresSyncStateRepository(primarySql)
 
 type Outcome =
@@ -111,9 +115,9 @@ async function main(): Promise<Outcome> {
 			store: new S3SnapshotStore({ bucket: SNAPSHOT_BUCKET, region: SNAPSHOT_REGION, prefix: SNAPSHOT_PREFIX, endpoint: SNAPSHOT_ENDPOINT, cacheDir: snapshotCacheDir }),
 			state,
 			applier,
-			databaseBaseline: new PostgresDatabaseBaseline(primarySql, baselineWorkDir, {
-				pageRows: BASELINE_PAGE_ROWS,
-				pauseMs: BASELINE_PAGE_PAUSE_MS,
+			databaseBaseline: new PostgresDatabaseBaseline(primarySql, primaryPsqlEnv(), baselineWorkDir, {
+				pageBlocks: BASELINE_PAGE_BLOCKS,
+				limiter: new RateLimiter(BASELINE_MAX_ROWS_PER_SEC),
 			}),
 			batchSize: SYNC_BATCH_ROWS,
 			forceDatabaseBaseline: FORCE_DATABASE_BASELINE,
