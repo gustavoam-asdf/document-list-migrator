@@ -2,6 +2,7 @@ import type { Sql } from "postgres"
 
 import { ENTITIES } from "../domain/Entity"
 import { PERSONA_TABLES } from "./personaTables"
+import { logEvent } from "../../shared/logEvent"
 
 // El upsert necesita la PK (ON CONFLICT). La versión anterior del migrador la dropeaba
 // durante la carga masiva: si una corrida vieja murió a mitad, la tabla puede no tenerla.
@@ -24,7 +25,12 @@ export async function verifyUpsertPrerequisites(sql: Sql): Promise<void> {
 			throw new Error(`${table} no tiene PRIMARY KEY: recrearla (y deduplicar) antes de sincronizar`)
 		}
 		if (row.persistence === "u") {
-			console.warn(`[sync] ${table} es UNLOGGED (resto de la carga masiva vieja): un crash de la BD la vacía. Corregir con ALTER TABLE ... SET LOGGED en una ventana de mantenimiento`)
+			logEvent({
+				event: "sync_warning",
+				level: "warn",
+				component: "unlogged-table",
+				message: `${table} es UNLOGGED (resto de la carga masiva vieja): un crash de la BD la vacía. Corregir con ALTER TABLE ... SET LOGGED en una ventana de mantenimiento`,
+			})
 		}
 	}
 }

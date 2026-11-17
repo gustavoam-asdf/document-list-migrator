@@ -22,6 +22,8 @@ export type SyncDeps = {
 	now: () => Date
 	stopReason: () => string | null
 	log: (message: string) => void
+	// Fallo no fatal: la corrida sigue y termina con 0.
+	warn: (component: string, message: string) => void
 }
 
 export type EntityResult = DiffStats & { skipped: number }
@@ -31,6 +33,7 @@ export type SyncResult = {
 	snapshotId: string
 	baseline: Baseline
 	entities: Record<Entity, EntityResult>
+	parseRejects: Record<Entity, number>
 }
 
 export async function runIncrementalSync(deps: SyncDeps): Promise<SyncResult> {
@@ -50,7 +53,7 @@ export async function runIncrementalSync(deps: SyncDeps): Promise<SyncResult> {
 	await deps.state.complete(target)
 	await prune(deps, target)
 
-	return { resumedSnapshotId, snapshotId, baseline, entities }
+	return { resumedSnapshotId, snapshotId, baseline, entities, parseRejects: prepared.parseRejects }
 }
 
 async function resume(deps: SyncDeps, target: SyncTarget): Promise<string | null> {
@@ -179,7 +182,7 @@ async function prune(deps: SyncDeps, target: SyncTarget): Promise<void> {
 	try {
 		await deps.store.pruneExcept(keep)
 	} catch (error) {
-		deps.log(`[sync] no se pudieron borrar snapshots viejos: ${errorMessage(error)}`)
+		deps.warn("s3-prune", `no se pudieron borrar snapshots viejos: ${errorMessage(error)}`)
 	}
 }
 

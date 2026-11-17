@@ -26,5 +26,5 @@ export const SNAPSHOT_PREFIX = Bun.env.MIGRATOR_SNAPSHOT_PREFIX || "snapshots"
 export const SNAPSHOT_ENDPOINT = Bun.env.MIGRATOR_SNAPSHOT_ENDPOINT || undefined
 
 // `sort` externo: memoria antes de volcar a disco y threads.
-export const SORT_BUFFER = Bun.env.MIGRATOR_SORT_BUFFER || "1G"
+export const SORT_BUFFER = Bun.env.MIGRATOR_SORT_BUFFER || "512M"
 export const SORT_PARALLEL = parseInt(Bun.env.MIGRATOR_SORT_PARALLEL || "2", 10)

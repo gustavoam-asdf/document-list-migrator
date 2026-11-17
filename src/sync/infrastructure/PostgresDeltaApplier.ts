@@ -57,6 +57,8 @@ const STATEMENTS: Record<Entity, Statements> = {
 // Cada lote es una transacción corta (solo locks de fila, sin DDL) que además suma
 // su tamaño al progreso: un corte en cualquier punto deja datos y progreso coherentes.
 export class PostgresDeltaApplier implements DeltaApplier {
+	#rejected = 0
+
 	constructor(
 		private readonly sql: Sql,
 		// Respiro entre commits para acotar el ritmo de escritura (WAL, I/O) y dejar
@@ -90,6 +92,11 @@ export class PostgresDeltaApplier implements DeltaApplier {
 			await this.#applyIsolatingBadRows(stream, entity, op, items.slice(0, middle))
 			await this.#applyIsolatingBadRows(stream, entity, op, items.slice(middle))
 		}
+	}
+
+	// Filas apartadas a migrator.sync_rejects en esta corrida.
+	get rejectedCount(): number {
+		return this.#rejected
 	}
 
 	async #commitBatch(stream: DeltaStream, entity: Entity, op: DeltaOp, items: string[]): Promise<void> {
@@ -126,6 +133,7 @@ export class PostgresDeltaApplier implements DeltaApplier {
 			`
 			await tx`UPDATE migrator.sync_progress SET done = done + 1 WHERE stream = ${stream}`
 		})
+		this.#rejected++
 	}
 
 	async #withRetry(operation: () => Promise<void>): Promise<void> {

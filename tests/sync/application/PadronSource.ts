@@ -18,6 +18,7 @@ export class PadronSource implements SnapshotSource {
 			id,
 			files: { dni: `${id}/dni.tsv`, ruc: `${id}/ruc.tsv` },
 			rows: { dni: padron.dni.length, ruc: padron.ruc.length },
+			parseRejects: { dni: 0, ruc: 0 },
 		}
 	}
 

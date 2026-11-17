@@ -46,6 +46,16 @@ There is no lint configuration.
 
 Exit codes: 0 ok; 130 interrupted by a signal (progress saved); 1 failure (the next run resumes).
 
+### Log contract (CloudWatch alarms depend on it)
+
+`src/shared/logEvent.ts` writes single-line JSON to stdout. Metric filters in andape-deploy alert on `{ $.event = "sync_summary" && $.pendingRejects > 0 }` and `{ $.event = "sync_warning" && $.level = "error" }`. **Don't rename `event`, `status`, `pendingRejects`, `rejected` or `level`**: if they change, the alarms stop firing and nobody notices.
+- `sync_summary`: one per run, with `status` ∈ ok|skipped|interrupted|failed.
+- `sync_warning`: non-fatal failures (`component` ∈ ubigeo|s3-prune|lock|unlogged-table).
+
+### Container memory (Fargate 4 GB)
+
+1.4.0 died of OOM in Fargate during the RUC diff, but reproduced locally with a 4 GB limit Bun stayed at ~200 MB of anonymous memory while the file cache reached ~3.5 GB (a run writes/reads ~7 GB of files). Assume the cache puts pressure on the limit. Keep anonymous memory well below that limit: `MIGRATOR_SORT_BUFFER` (512M per sort, two in parallel) and the S3 multipart (16 MiB × 2 parts, files uploaded one after the other).
+
 ### Sync state (`migrator` schema in the DB)
 
 Created by the migrator itself (`ensureSchema`). Prisma, which owns `public`, does not see it.

@@ -14,7 +14,7 @@ export class KeyOrderTrackingWriter {
 	rows = 0
 
 	constructor(private readonly path: string) {
-		this.#writer = Bun.file(path).writer({ highWaterMark: 50 * 1024 * 1024 })
+		this.#writer = Bun.file(path).writer({ highWaterMark: 8 * 1024 * 1024 })
 	}
 
 	write(row: string): void {

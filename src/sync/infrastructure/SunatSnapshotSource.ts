@@ -61,7 +61,7 @@ export class SunatSnapshotSource implements SnapshotSource {
 		await fs.rm(sourceFile)
 
 		const files: Record<Entity, string> = { dni: `${dir}/dni.tsv`, ruc: `${dir}/ruc.tsv` }
-		// En paralelo: cada sort usa hasta MIGRATOR_SORT_BUFFER de memoria (2 x 1G por defecto).
+		// En paralelo: cada sort usa hasta MIGRATOR_SORT_BUFFER de memoria (2 x 512M por defecto).
 		await Promise.all(
 			(["dni", "ruc"] as const).map(async entity => {
 				const start = Date.now()
@@ -77,7 +77,12 @@ export class SunatSnapshotSource implements SnapshotSource {
 			`[snapshot] ${id} listo | líneas=${sourceLine} | dni=${writers.dni.rows} (rechazos ${dniRejects}) ` +
 			`| ruc=${writers.ruc.rows} (rechazos ${rucRejects})`,
 		)
-		return { id, files, rows: { dni: writers.dni.rows, ruc: writers.ruc.rows } }
+		return {
+			id,
+			files,
+			rows: { dni: writers.dni.rows, ruc: writers.ruc.rows },
+			parseRejects: { dni: dniRejects, ruc: rucRejects },
+		}
 	}
 
 	read(snapshot: PreparedSnapshot, entity: Entity): LineChunks {

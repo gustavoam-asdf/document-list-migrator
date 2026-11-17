@@ -1,6 +1,7 @@
 import type { Sql } from "postgres"
 
 import { errorMessage } from "../../shared/errorMessage"
+import { logEvent } from "../../shared/logEvent"
 
 const LOCK_NAME = "document-list-migrator:sync"
 const HEARTBEAT_MS = 20_000
@@ -19,7 +20,9 @@ export async function acquireSyncLock(sql: Sql): Promise<ReleaseLock | null> {
 
 	// Mantiene viva la conexión reservada (y con ella el lock) durante toda la corrida.
 	const heartbeat = setInterval(() => {
-		connection`SELECT 1`.catch(error => console.warn(`[sync] heartbeat del lock falló: ${errorMessage(error)}`))
+		connection`SELECT 1`.catch(error =>
+			logEvent({ event: "sync_warning", level: "error", component: "lock", message: `heartbeat del lock falló: ${errorMessage(error)}` }),
+		)
 	}, HEARTBEAT_MS)
 
 	return async () => {

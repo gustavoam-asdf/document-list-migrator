@@ -19,8 +19,9 @@ type Config = {
 	cacheDir: string
 }
 
-const PART_SIZE = 64 * 1024 * 1024
-const UPLOAD_QUEUE = 4
+// Memoria del multipart ≈ PART_SIZE × UPLOAD_QUEUE; los dos archivos suben en serie.
+const PART_SIZE = 16 * 1024 * 1024
+const UPLOAD_QUEUE = 2
 const UPLOAD_RETRIES = 3
 const CREDENTIALS_REFRESH_MARGIN_MS = 10 * 60 * 1000
 
@@ -48,16 +49,14 @@ export class S3SnapshotStore implements SnapshotStore {
 
 	async save(snapshot: PreparedSnapshot): Promise<void> {
 		const client = await this.#getClient()
-		await Promise.all(
-			ENTITIES.map(entity =>
-				client.write(this.#dataKey(snapshot.id, entity), Bun.file(snapshot.files[entity]), {
-					partSize: PART_SIZE,
-					queueSize: UPLOAD_QUEUE,
-					retry: UPLOAD_RETRIES,
-					type: "text/tab-separated-values",
-				}),
-			),
-		)
+		for (const entity of ENTITIES) {
+			await client.write(this.#dataKey(snapshot.id, entity), Bun.file(snapshot.files[entity]), {
+				partSize: PART_SIZE,
+				queueSize: UPLOAD_QUEUE,
+				retry: UPLOAD_RETRIES,
+				type: "text/tab-separated-values",
+			})
+		}
 		const manifest = { id: snapshot.id, rows: snapshot.rows, savedAt: new Date().toISOString() }
 		await client.write(this.#manifestKey(snapshot.id), JSON.stringify(manifest), { type: "application/json" })
 	}

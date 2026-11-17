@@ -5,6 +5,7 @@ export type PreparedSnapshot = {
 	id: string
 	files: Record<Entity, string>
 	rows: Record<Entity, number>
+	parseRejects: Record<Entity, number>
 }
 
 export interface SnapshotSource {

@@ -28,7 +28,8 @@ import { acquireSyncLock } from "./sync/infrastructure/acquireSyncLock"
 import { errorMessage } from "./shared/errorMessage"
 import fs from "node:fs/promises"
 import { redis } from "./redis"
-import { runIncrementalSync } from "./sync/application/runIncrementalSync"
+import { runIncrementalSync, type SyncResult } from "./sync/application/runIncrementalSync"
+import { logEvent } from "./shared/logEvent"
 import { verifyUpsertPrerequisites } from "./sync/infrastructure/verifyUpsertPrerequisites"
 
 const startTime = Date.now()
@@ -68,11 +69,22 @@ async function refreshUbigeoIfDue(): Promise<void> {
 		console.log(`[primary] refreshing Ubigeo from INEI: ${reason}`)
 		await refreshUbigeoTable(primarySql, "primary", await getUbigeos())
 	} catch (err) {
-		console.warn(`[primary] Ubigeo refresh failed, continuing with existing table: ${errorMessage(err)}`)
+		warn("ubigeo", `refresh desde INEI falló, se sigue con la tabla actual: ${errorMessage(err)}`)
 	}
 }
 
-async function main(): Promise<number> {
+function warn(component: string, message: string): void {
+	logEvent({ event: "sync_warning", level: "error", component, message })
+}
+
+const applier = new PostgresDeltaApplier(primarySql, SYNC_BATCH_PAUSE_MS)
+const state = new PostgresSyncStateRepository(primarySql)
+
+type Outcome =
+	| { kind: "skipped" }
+	| { kind: "ok"; result: SyncResult; pendingRejects: number }
+
+async function main(): Promise<Outcome> {
 	if (!SNAPSHOT_BUCKET || !SNAPSHOT_REGION) {
 		throw new Error("faltan MIGRATOR_SNAPSHOT_BUCKET / MIGRATOR_SNAPSHOT_REGION")
 	}
@@ -83,21 +95,19 @@ async function main(): Promise<number> {
 	const releaseLock = await acquireSyncLock(primarySql)
 	if (!releaseLock) {
 		console.warn("[main] otra corrida tiene el lock de sincronización: no hay nada que hacer")
-		return 0
+		return { kind: "skipped" }
 	}
 
 	try {
 		await refreshUbigeoIfDue()
 		await verifyUpsertPrerequisites(primarySql)
-
-		const state = new PostgresSyncStateRepository(primarySql)
 		await state.ensureSchema()
 
 		const result = await runIncrementalSync({
 			source: new SunatSnapshotSource({ remoteZipUrl: remoteZipFile, workDir: snapshotWorkDir, rejectsDir }),
 			store: new S3SnapshotStore({ bucket: SNAPSHOT_BUCKET, region: SNAPSHOT_REGION, prefix: SNAPSHOT_PREFIX, endpoint: SNAPSHOT_ENDPOINT, cacheDir: snapshotCacheDir }),
 			state,
-			applier: new PostgresDeltaApplier(primarySql, SYNC_BATCH_PAUSE_MS),
+			applier,
 			databaseBaseline: new PostgresDatabaseBaseline(primarySql, baselineWorkDir, {
 				pageRows: BASELINE_PAGE_ROWS,
 				pauseMs: BASELINE_PAGE_PAUSE_MS,
@@ -107,6 +117,7 @@ async function main(): Promise<number> {
 			now: () => new Date(),
 			stopReason: () => (shouldExit() ? (shutdownReasonText() ?? "señal") : null),
 			log: message => console.log(message),
+			warn,
 		})
 
 		const updateState: UpdateDataState = { isUpdating: false, lastUpdateAt: new Date() }
@@ -116,31 +127,57 @@ async function main(): Promise<number> {
 		await fs.rm(baselineWorkDir, { recursive: true, force: true })
 		await fs.rm(snapshotCacheDir, { recursive: true, force: true })
 
-		const { dni, ruc } = result.entities
-		console.log(
-			`\n========== ALL DONE in ${((Date.now() - startTime) / 1000).toFixed(1)}s ==========\n` +
-			`snapshot: ${result.snapshotId}` +
-			(result.resumedSnapshotId ? ` (antes se retomó ${result.resumedSnapshotId})` : "") + "\n" +
-			`baseline: ${result.baseline.kind === "snapshot" ? result.baseline.snapshotId : "volcado de la BD"}\n` +
-			`dni: upserts=${dni.upserts} deletes=${dni.deletes} sin cambio=${dni.unchanged}\n` +
-			`ruc: upserts=${ruc.upserts} deletes=${ruc.deletes} sin cambio=${ruc.unchanged}\n`,
-		)
-		return 0
+		return { kind: "ok", result, pendingRejects: await state.pendingRejects() }
 	} finally {
-		await releaseLock().catch(error => console.warn(`[main] no se pudo liberar el lock: ${errorMessage(error)}`))
+		await releaseLock().catch(error => warn("lock", `no se pudo liberar el lock: ${errorMessage(error)}`))
 	}
+}
+
+const durationSec = () => Math.round((Date.now() - startTime) / 1000)
+
+function summarize(outcome: Outcome): void {
+	if (outcome.kind === "skipped") {
+		logEvent({ event: "sync_summary", status: "skipped", reason: "locked", durationSec: durationSec() })
+		return
+	}
+	const { result, pendingRejects } = outcome
+	const { dni, ruc } = result.entities
+	logEvent({
+		event: "sync_summary",
+		status: "ok",
+		snapshotId: result.snapshotId,
+		resumedSnapshotId: result.resumedSnapshotId,
+		baseline: result.baseline.kind,
+		upserts: dni.upserts + ruc.upserts,
+		deletes: dni.deletes + ruc.deletes,
+		unchanged: dni.unchanged + ruc.unchanged,
+		rejected: applier.rejectedCount,
+		pendingRejects,
+		parseRejects: result.parseRejects.dni + result.parseRejects.ruc,
+		durationSec: durationSec(),
+		dni: { upserts: dni.upserts, deletes: dni.deletes, unchanged: dni.unchanged },
+		ruc: { upserts: ruc.upserts, deletes: ruc.deletes, unchanged: ruc.unchanged },
+	})
 }
 
 let exitCode: number
 try {
-	exitCode = await main()
+	summarize(await main())
+	exitCode = 0
 } catch (error) {
-	if (error instanceof SyncInterruptedError) {
+	const interrupted = error instanceof SyncInterruptedError
+	if (interrupted) {
 		console.warn(`[main] ${error.message} — el progreso quedó guardado, la próxima corrida retoma`)
-		exitCode = 130
 	} else {
 		console.error("[main] sync falló — la próxima corrida retoma desde el último lote confirmado:", error)
-		exitCode = 1
 	}
+	logEvent({
+		event: "sync_summary",
+		status: interrupted ? "interrupted" : "failed",
+		error: errorMessage(error),
+		rejected: applier.rejectedCount,
+		durationSec: durationSec(),
+	})
+	exitCode = interrupted ? 130 : 1
 }
 await shutdownAndExit(exitCode)

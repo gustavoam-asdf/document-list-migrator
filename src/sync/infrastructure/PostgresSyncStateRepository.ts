@@ -131,6 +131,13 @@ export class PostgresSyncStateRepository implements SyncStateRepository {
 		})
 	}
 
+	// Filas que siguen fallando (se reintentan en la próxima corrida).
+	async pendingRejects(): Promise<number> {
+		const rows = await this.sql<{ count: unknown }[]>`SELECT count(*)::int AS count FROM migrator.sync_rejects`
+		const count = rows[0]?.count
+		return typeof count === "number" ? count : 0
+	}
+
 	async markUnknown(): Promise<void> {
 		await this.sql.begin(async tx => {
 			await tx`

@@ -34,6 +34,7 @@ function setup(db: InMemoryDatabase, padron: Padron) {
 		now: () => new Date(Date.UTC(2026, 10, 17 + day++)),
 		stopReason: () => null,
 		log: () => {},
+		warn: () => {},
 		...overrides,
 	})
 	return { source, store, deps }
@@ -118,6 +119,20 @@ describe("runIncrementalSync", () => {
 		await expect(interrupted).rejects.toBeInstanceOf(SyncInterruptedError)
 		await runIncrementalSync(deps())
 		expectDatabaseEquals(db, DAY_2)
+	})
+
+	test("si falla el borrado de snapshots viejos, avisa y la corrida termina bien", async () => {
+		const db = new InMemoryDatabase()
+		const { store, deps } = setup(db, DAY_1)
+		store.pruneExcept = async () => {
+			throw new Error("AccessDenied")
+		}
+		const warnings: string[] = []
+
+		const result = await runIncrementalSync(deps({ warn: (component, message) => { warnings.push(`${component}: ${message}`) } }))
+
+		expect(db.state).toEqual({ kind: "idle", appliedSnapshotId: result.snapshotId })
+		expect(warnings).toEqual(["s3-prune: no se pudieron borrar snapshots viejos: AccessDenied"])
 	})
 
 	test("si el snapshot aplicado ya no está en el store, cae al volcado de la BD sin perder datos", async () => {
