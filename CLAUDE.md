@@ -15,7 +15,7 @@ One-shot **ECS Fargate scheduled job**, **once per day**, that keeps `PersonaNat
 
 ## Runtime & package manager
 
-**Bun** project. Use `bun`/`bunx`, never `npm`/`pnpm`. The image needs the system `unzip` and `sort` (coreutils) binaries.
+**Bun** project. Use `bun`/`bunx`, never `npm`/`pnpm`. The image needs the system `unzip`, `sort` (coreutils) and `curl` binaries.
 
 ## Commands
 
@@ -54,7 +54,10 @@ Exit codes: 0 ok; 130 interrupted by a signal (progress saved); 1 failure (the n
 
 ### Container memory (Fargate 4 GB)
 
-1.4.0 died of OOM in Fargate during the RUC diff, but reproduced locally with a 4 GB limit Bun stayed at ~200 MB of anonymous memory while the file cache reached ~3.5 GB (a run writes/reads ~7 GB of files). Assume the cache puts pressure on the limit. Keep anonymous memory well below that limit: `MIGRATOR_SORT_BUFFER` (512M per sort, two in parallel) and the S3 multipart (16 MiB × 2 parts, files uploaded one after the other).
+- **Large transfers never go through Bun's network stack.** On Linux, `fetch`, `Bun.write(path, response)` and the `S3Client` (upload, `stream()`, `slice().arrayBuffer()`) keep everything transferred in native memory (a 1.7 GB ruc.tsv means ~1.8 GB of RSS). That caused the OOMs of 1.4.0 and 1.4.1 in Fargate (upstream issues oven-sh/bun#42722 and #29083). The padrón and the snapshot data use `curl` (`src/net/curlTransfer.ts`) with presigned URLs, at ~8 MB. `S3Client` is only for small operations (manifest, list, delete, presign).
+- Big file writers wait for the disk (`flush`) so a fast producer doesn't pile up in memory.
+- Anonymous memory peak: the two parallel `sort` processes (`MIGRATOR_SORT_BUFFER`, 512M each). Verified with a 2 GB limit.
+- Every 5 s the migrator writes `{"event":"mem",...}` (cgroup anon/file/dirty + Bun RSS/heap) to diagnose OOMs that ECS metrics, sampled every 60 s, miss.
 
 ### Sync state (`migrator` schema in the DB)
 

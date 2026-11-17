@@ -25,6 +25,9 @@ export const SNAPSHOT_PREFIX = Bun.env.MIGRATOR_SNAPSHOT_PREFIX || "snapshots"
 // Solo para S3 compatibles fuera de AWS (MinIO en local). Vacío = AWS.
 export const SNAPSHOT_ENDPOINT = Bun.env.MIGRATOR_SNAPSHOT_ENDPOINT || undefined
 
+// Intervalo de la línea JSON {"event":"mem"} (diagnóstico de OOM).
+export const MEMORY_SAMPLE_MS = parseInt(Bun.env.MIGRATOR_MEMORY_SAMPLE_MS || "5000", 10)
+
 // `sort` externo: memoria antes de volcar a disco y threads.
 export const SORT_BUFFER = Bun.env.MIGRATOR_SORT_BUFFER || "512M"
 export const SORT_PARALLEL = parseInt(Bun.env.MIGRATOR_SORT_PARALLEL || "2", 10)

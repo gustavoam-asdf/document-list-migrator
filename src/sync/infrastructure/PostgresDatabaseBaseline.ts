@@ -48,7 +48,10 @@ export class PostgresDatabaseBaseline implements DatabaseBaseline {
 			)
 			pages++
 			for (const row of rows) {
-				writer.write(toCopyLine(row, spec.columns))
+				const flushing = writer.write(toCopyLine(row, spec.columns))
+				if (flushing) {
+					await flushing
+				}
 			}
 
 			const last = rows.at(-1)

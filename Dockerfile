@@ -1,6 +1,6 @@
 # use the official Bun image
 # see all versions at https://hub.docker.com/r/oven/bun/tags
-FROM oven/bun:1.3.14-debian AS base
+FROM oven/bun:1.4.2-debian AS base
 WORKDIR /app
 
 # install dependencies into temp directory
@@ -29,8 +29,10 @@ COPY . .
 # copy production dependencies and source code into final image
 FROM base AS release
 
+# curl: las descargas grandes (padrón, snapshots de S3) no pasan por la red de Bun,
+# que en Linux retiene en memoria lo descargado (OOM con ruc.tsv de 1,7 GB).
 RUN apt-get update \
- && apt-get install -y --no-install-recommends unzip \
+ && apt-get install -y --no-install-recommends unzip curl ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd --system --gid 1001 migrator-user

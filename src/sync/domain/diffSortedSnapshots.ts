@@ -21,6 +21,14 @@ export type DiffParams = {
 	onDelete: Sink
 }
 
+// Sin esto el merge avanza solo con microtareas y no deja correr timers (heartbeat del
+// lock, muestreo de memoria) durante todo el diff de una tabla.
+const YIELD_EVERY_CHUNKS = 256
+
+function yieldToEventLoop(): Promise<void> {
+	return new Promise(resolve => setImmediate(resolve))
+}
+
 export class UnsortedSnapshotError extends Error {
 	constructor(side: "base" | "next", previousKey: string, key: string) {
 		super(`snapshot ${side} no está ordenado: "${key}" aparece después de "${previousKey}"`)
@@ -34,6 +42,7 @@ class SortedCursor {
 	#iterator: AsyncIterator<string[]>
 	#chunk: string[] = []
 	#index = 0
+	#chunksRead = 0
 	#previousKey: string | undefined
 	line: string | undefined
 	key: string | undefined
@@ -67,6 +76,9 @@ class SortedCursor {
 				this.line = line
 				this.key = key
 				return
+			}
+			if (++this.#chunksRead % YIELD_EVERY_CHUNKS === 0) {
+				await yieldToEventLoop()
 			}
 			const result = await this.#iterator.next()
 			if (result.done) {

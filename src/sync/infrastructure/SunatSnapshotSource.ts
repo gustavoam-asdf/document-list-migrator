@@ -9,7 +9,7 @@ import { RejectsWriter } from "../../rejects/RejectsWriter"
 import { fileLineChunks } from "../../stream/fileLineChunks"
 import { KeyOrderTrackingWriter } from "./KeyOrderTrackingWriter"
 import { readLineChunks } from "../../stream/readLineChunks"
-import { streamToFile } from "../../stream/streamToFile"
+import { curlTransfer } from "../../net/curlTransfer"
 
 type Config = {
 	remoteZipUrl: string
@@ -40,12 +40,14 @@ export class SunatSnapshotSource implements SnapshotSource {
 		console.log("[snapshot] procesando padrón")
 		let sourceLine = 0
 		let headerSkipped = false
-		const route = (entity: Entity, result: ParseResult, line: string) => {
+		const route = (entity: Entity, result: ParseResult, line: string): Promise<void> | undefined => {
 			if (result.kind === "row") {
-				writers[entity].write(result.row)
-			} else if (result.kind === "reject") {
+				return writers[entity].write(result.row)
+			}
+			if (result.kind === "reject") {
 				rejects[entity].write({ source: `parse-${entity}`, rawLine: line, error: result.reason, sourceLine })
 			}
+			return undefined
 		}
 		for await (const lines of readLineChunks(Bun.file(sourceFile).stream(), "latin1")) {
 			for (const line of lines) {
@@ -54,8 +56,14 @@ export class SunatSnapshotSource implements SnapshotSource {
 					headerSkipped = true
 					continue
 				}
-				route("dni", parseDniLine(line), line)
-				route("ruc", parseRucLine(line), line)
+				const dniFlush = route("dni", parseDniLine(line), line)
+				if (dniFlush) {
+					await dniFlush
+				}
+				const rucFlush = route("ruc", parseRucLine(line), line)
+				if (rucFlush) {
+					await rucFlush
+				}
 			}
 		}
 		await fs.rm(sourceFile)
@@ -92,12 +100,8 @@ export class SunatSnapshotSource implements SnapshotSource {
 	async #download(dir: string): Promise<string> {
 		const zipFile = `${dir}/padron.zip`
 		console.log("[snapshot] descargando padrón")
-		const response = await fetch(this.config.remoteZipUrl)
-		if (!response.ok || !response.body) {
-			throw new Error(`descarga del padrón: HTTP ${response.status}`)
-		}
-		const bytes = await streamToFile(response.body, zipFile)
-		console.log(`[snapshot] padrón descargado: ${(bytes / 1024 / 1024).toFixed(0)} MB`)
+		await curlTransfer({ kind: "download", url: this.config.remoteZipUrl, file: zipFile }, "padrón")
+		console.log(`[snapshot] padrón descargado: ${(Bun.file(zipFile).size / 1024 / 1024).toFixed(0)} MB`)
 
 		console.log("[snapshot] descomprimiendo")
 		await $`unzip -o ${zipFile} -d ${dir}`.quiet()

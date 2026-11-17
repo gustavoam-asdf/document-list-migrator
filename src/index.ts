@@ -1,6 +1,7 @@
 import {
 	BASELINE_PAGE_PAUSE_MS,
 	BASELINE_PAGE_ROWS,
+	MEMORY_SAMPLE_MS,
 	FORCE_DATABASE_BASELINE,
 	SNAPSHOT_BUCKET,
 	SNAPSHOT_ENDPOINT,
@@ -30,12 +31,14 @@ import fs from "node:fs/promises"
 import { redis } from "./redis"
 import { runIncrementalSync, type SyncResult } from "./sync/application/runIncrementalSync"
 import { logEvent } from "./shared/logEvent"
+import { startMemorySampler } from "./shared/startMemorySampler"
 import { verifyUpsertPrerequisites } from "./sync/infrastructure/verifyUpsertPrerequisites"
 
 const startTime = Date.now()
 console.log(`PID: ${process.pid}`)
 
 installSignalHandlers()
+startMemorySampler(MEMORY_SAMPLE_MS)
 
 const stateKey = "document-list:update-data-state"
 

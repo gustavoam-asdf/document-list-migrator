@@ -6,7 +6,7 @@ import type { LineChunks } from "../domain/diffSortedSnapshots"
 import type { PreparedSnapshot } from "../application/SnapshotSource"
 import type { SnapshotStore } from "../application/SnapshotStore"
 import { fileLineChunks } from "../../stream/fileLineChunks"
-import { streamToFile } from "../../stream/streamToFile"
+import { curlTransfer } from "../../net/curlTransfer"
 import { resolveAwsCredentials, type AwsCredentials } from "./awsCredentials"
 
 type Config = {
@@ -19,12 +19,13 @@ type Config = {
 	cacheDir: string
 }
 
-// Memoria del multipart ≈ PART_SIZE × UPLOAD_QUEUE; los dos archivos suben en serie.
-const PART_SIZE = 16 * 1024 * 1024
-const UPLOAD_QUEUE = 2
-const UPLOAD_RETRIES = 3
 const CREDENTIALS_REFRESH_MARGIN_MS = 10 * 60 * 1000
+// Validez de las URLs prefirmadas: de sobra para subir o bajar un archivo.
+const PRESIGN_SECONDS = 3600
 
+// Los datos (cientos de MB) viajan por curl con URLs prefirmadas; el cliente S3 de Bun
+// solo hace operaciones chicas (manifest, list, delete). Ver curlTransfer.
+// Un PUT simple admite hasta 5 GB: ruc.tsv pesa ~1,7 GB.
 // Layout: <prefix>/<id>/{dni,ruc}.tsv + manifest.json. El manifest se escribe al
 // final: su existencia es lo que marca un snapshot como completo.
 export class S3SnapshotStore implements SnapshotStore {
@@ -50,12 +51,9 @@ export class S3SnapshotStore implements SnapshotStore {
 	async save(snapshot: PreparedSnapshot): Promise<void> {
 		const client = await this.#getClient()
 		for (const entity of ENTITIES) {
-			await client.write(this.#dataKey(snapshot.id, entity), Bun.file(snapshot.files[entity]), {
-				partSize: PART_SIZE,
-				queueSize: UPLOAD_QUEUE,
-				retry: UPLOAD_RETRIES,
-				type: "text/tab-separated-values",
-			})
+			const key = this.#dataKey(snapshot.id, entity)
+			const url = client.presign(key, { method: "PUT", expiresIn: PRESIGN_SECONDS })
+			await curlTransfer({ kind: "upload", url, file: snapshot.files[entity] }, key)
 		}
 		const manifest = { id: snapshot.id, rows: snapshot.rows, savedAt: new Date().toISOString() }
 		await client.write(this.#manifestKey(snapshot.id), JSON.stringify(manifest), { type: "application/json" })
@@ -91,9 +89,10 @@ export class S3SnapshotStore implements SnapshotStore {
 		}
 		await fs.mkdir(`${this.config.cacheDir}/${id}`, { recursive: true })
 		const client = await this.#getClient()
+		const key = this.#dataKey(id, entity)
 		const partial = `${local}.partial`
 		const start = Date.now()
-		await streamToFile(client.file(this.#dataKey(id, entity)).stream(), partial)
+		await curlTransfer({ kind: "download", url: client.presign(key, { expiresIn: PRESIGN_SECONDS }), file: partial }, key)
 		await fs.rename(partial, local)
 		console.log(`[s3] ${id}/${entity}.tsv descargado en ${Date.now() - start}ms`)
 		return local
