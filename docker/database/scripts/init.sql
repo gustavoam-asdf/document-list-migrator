@@ -2015,5 +2015,3 @@ COPY public."Ubigeo" (codigo, region, provincia, distrito) FROM stdin;
 250401	UCAYALI	PURUS	PURUS
 980100	EXTERIOR	EXTERIOR	MULTIDISTRITAL
 \.
-
-CREATE DATABASE document_list_secondary;

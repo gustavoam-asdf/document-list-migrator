@@ -35,20 +35,6 @@ export const primarySql = postgres({
 	fetch_types: false,
 })
 
-export const secondarySql = postgres({
-	host: Bun.env.DATABASE_HOST,
-	port: Number(Bun.env.DATABASE_PORT),
-	database: Bun.env.DATABASE_NAME_SECONDARY,
-	username: Bun.env.DATABASE_USER,
-	password: Bun.env.DATABASE_PASSWORD,
-	ssl: sslConfig,
-	max: 5,
-	idle_timeout: 30,
-	connect_timeout: 30,
-	prepare: false,
-	fetch_types: false,
-})
-
 export type PingResult = {
 	pid: number
 	version: string

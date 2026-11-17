@@ -107,7 +107,7 @@ export async function fetchUbigeos(): Promise<UbigeoRow[]> {
 	return parseTree(html)
 }
 
-// Scrape once per run (both DB phases share the result).
+// Scrape once per run.
 let memo: Promise<UbigeoRow[]> | null = null
 export function getUbigeos(): Promise<UbigeoRow[]> {
 	if (!memo) {

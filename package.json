@@ -3,12 +3,14 @@
   "module": "src/index.ts",
   "type": "module",
   "scripts": {
-    "build": "bun build ./src/index.ts ./src/workers/dniWorker.ts ./src/workers/rucWorker.ts --target bun --root src --outdir dist --splitting --sourcemap=linked",
+    "build": "bun build ./src/index.ts --target bun --root src --outdir dist --sourcemap=linked",
+    "test": "bun test tests",
+    "typecheck": "tsc --noEmit",
     "start": "bun ./src/index.ts",
     "dev": "bun ./src/index.ts"
   },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "1.3.14"
   },
   "peerDependencies": {
     "typescript": "6.0.3"

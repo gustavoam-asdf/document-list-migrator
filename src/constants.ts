@@ -1,54 +1,30 @@
-export const remoteZipFile = "http://www2.sunat.gob.pe/padron_reducido_ruc.zip"
+export const remoteZipFile = Bun.env.MIGRATOR_PADRON_URL || "http://www2.sunat.gob.pe/padron_reducido_ruc.zip"
 export const rootDir = process.cwd()
 export const filesDir = `${rootDir}/files`
-export const localZipFile = `${filesDir}/list.zip`
-export const localFile = `${filesDir}/padron_reducido_ruc.txt`
-
-export const dnisDir = `${filesDir}/dnis`
-export const rucsDir = `${filesDir}/rucs`
+export const snapshotWorkDir = `${filesDir}/snapshot`
+export const baselineWorkDir = `${filesDir}/baseline`
+export const snapshotCacheDir = `${filesDir}/snapshot-cache`
 export const rejectsDir = `${filesDir}/rejects`
 
-// Tamaño del chunk file. Solo controla memoria + granularidad de retry,
-// el paralelismo ahora lo decide el supervisor (AIMD). Default 1M.
-export const FILE_LINES_SPLIT = parseInt(Bun.env.FILE_LINES_SPLIT || "1000000", 10)
+// Filas por transacción al aplicar el delta. Lotes cortos = locks de fila breves y
+// poco trabajo perdido si se corta la corrida.
+export const SYNC_BATCH_ROWS = parseInt(Bun.env.MIGRATOR_SYNC_BATCH_ROWS || "20000", 10)
+// Pausa tras cada commit de lote: acota el ritmo de escritura sobre RDS.
+export const SYNC_BATCH_PAUSE_MS = parseInt(Bun.env.MIGRATOR_SYNC_BATCH_PAUSE_MS || "100", 10)
 
-// Filas por COPY pipeline call dentro del worker. Fila RUC pesa ~6x la DNI,
-// por eso el default RUC es menor.
-export const BATCH_ROWS_DNI = parseInt(Bun.env.MIGRATOR_BATCH_ROWS_DNI || "200000", 10)
-export const BATCH_ROWS_RUC = parseInt(Bun.env.MIGRATOR_BATCH_ROWS_RUC || "70000", 10)
+// Volcado de la BD (baseline de último recurso): filas por página y pausa entre páginas.
+export const BASELINE_PAGE_ROWS = parseInt(Bun.env.MIGRATOR_BASELINE_PAGE_ROWS || "100000", 10)
+export const BASELINE_PAGE_PAUSE_MS = parseInt(Bun.env.MIGRATOR_BASELINE_PAGE_PAUSE_MS || "100", 10)
 
-// Supervisor / AIMD
-export const INITIAL_CONCURRENCY = parseInt(Bun.env.MIGRATOR_INITIAL_CONCURRENCY || "4", 10)
-export const MIN_CONCURRENCY = parseInt(Bun.env.MIGRATOR_MIN_CONCURRENCY || "2", 10)
-// Si no se setea, se deriva de SHOW max_connections al arrancar la fase.
-export const MAX_CONCURRENCY_ENV = Bun.env.MIGRATOR_MAX_CONCURRENCY
-	? parseInt(Bun.env.MIGRATOR_MAX_CONCURRENCY, 10)
-	: undefined
-export const MAX_CONCURRENCY_FALLBACK = 16
-// Margen reservado en max_connections para otras conexiones (lectores, monitoreo).
-export const CONNECTION_HEADROOM = parseInt(Bun.env.MIGRATOR_CONNECTION_HEADROOM || "5", 10)
-export const PROBE_INTERVAL_MS = parseInt(Bun.env.MIGRATOR_PROBE_INTERVAL_MS || "15000", 10)
-// Umbral en % de cambio de throughput para subir/bajar concurrency.
-export const PROBE_THRESHOLD_PCT = parseFloat(Bun.env.MIGRATOR_PROBE_THRESHOLD_PCT || "5")
+// Último recurso manual: ignora el snapshot de S3 y calcula el delta contra un volcado de la BD.
+export const FORCE_DATABASE_BASELINE = Bun.env.MIGRATOR_FORCE_DATABASE_BASELINE === "true"
 
-// Tiempo máximo que un worker puede pasar sin reportar progress antes de
-// asumir que está colgado y terminarlo. Default 5 min — generoso para no
-// matar workers en batches grandes/lentos pero rápido vs el default TCP.
-export const WORKER_LIVENESS_TIMEOUT_MS = parseInt(Bun.env.MIGRATOR_WORKER_LIVENESS_TIMEOUT_MS || "300000", 10)
+export const SNAPSHOT_BUCKET = Bun.env.MIGRATOR_SNAPSHOT_BUCKET ?? ""
+export const SNAPSHOT_REGION = Bun.env.MIGRATOR_SNAPSHOT_REGION || Bun.env.AWS_REGION || ""
+export const SNAPSHOT_PREFIX = Bun.env.MIGRATOR_SNAPSHOT_PREFIX || "snapshots"
+// Solo para S3 compatibles fuera de AWS (MinIO en local). Vacío = AWS.
+export const SNAPSHOT_ENDPOINT = Bun.env.MIGRATOR_SNAPSHOT_ENDPOINT || undefined
 
-// Tiempo que damos a los workers para drenar su batch actual y cerrar COPY
-// cuando recibimos SIGTERM/SIGINT. Si lo exceden, worker.terminate() forzado.
-export const SHUTDOWN_GRACE_MS = parseInt(Bun.env.MIGRATOR_SHUTDOWN_GRACE_MS || "60000", 10)
-
-// ===== Bulk load optimizations =====
-// maintenance_work_mem para el ADD PRIMARY KEY post-COPY. Más memoria = el sort
-// del CREATE INDEX cabe en RAM en vez de spillear a disco.
-export const MAINTENANCE_WORK_MEM = Bun.env.MIGRATOR_MAINTENANCE_WORK_MEM || "2GB"
-
-// Workers paralelos que Postgres usa internamente para CREATE INDEX.
-// Requiere max_parallel_workers del server >= valor.
-export const MAX_PARALLEL_MAINTENANCE_WORKERS = parseInt(Bun.env.MIGRATOR_MAX_PARALLEL_MAINTENANCE_WORKERS || "4", 10)
-
-// Feature flags por si alguna optimización causa problemas en prod.
-export const ENABLE_UNLOGGED = (Bun.env.MIGRATOR_ENABLE_UNLOGGED ?? "true") === "true"
-export const ENABLE_DROP_PK = (Bun.env.MIGRATOR_ENABLE_DROP_PK ?? "true") === "true"
+// `sort` externo: memoria antes de volcar a disco y threads.
+export const SORT_BUFFER = Bun.env.MIGRATOR_SORT_BUFFER || "1G"
+export const SORT_PARALLEL = parseInt(Bun.env.MIGRATOR_SORT_PARALLEL || "2", 10)

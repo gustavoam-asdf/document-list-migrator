@@ -9,8 +9,7 @@ export type RejectEntry = {
 	[key: string]: unknown
 }
 
-// Append-only JSONL writer. Cada archivo debe tener un único productor
-// (split escribe parse-*, cada worker escribe su propio copy-*-{worker}.jsonl).
+// Append-only JSONL writer, un único productor por archivo (parse-dni / parse-ruc).
 // Pensado para fallos raros (<0.01%), por eso no se rota.
 type BunFileSink = ReturnType<ReturnType<typeof Bun.file>["writer"]>
 
