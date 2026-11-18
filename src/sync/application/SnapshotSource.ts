@@ -1,4 +1,5 @@
 import type { Entity } from "../domain/Entity"
+import type { SourceVersion } from "../domain/SourceVersion"
 import type { LineChunks } from "../domain/diffSortedSnapshots"
 
 export type PreparedSnapshot = {
@@ -9,6 +10,8 @@ export type PreparedSnapshot = {
 }
 
 export interface SnapshotSource {
+	// Huella de la publicación actual, sin descargarla.
+	currentVersion(): Promise<SourceVersion>
 	// Descarga el padrón y deja un archivo ordenado por clave por entidad.
 	prepare(id: string): Promise<PreparedSnapshot>
 	read(snapshot: PreparedSnapshot, entity: Entity): LineChunks

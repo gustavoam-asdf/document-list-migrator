@@ -1,4 +1,5 @@
 import { ENTITIES, deltaStream, type Entity } from "../domain/Entity"
+import { isSamePublication, type SourceVersion } from "../domain/SourceVersion"
 import { snapshotIdFor, type Baseline, type SyncState, type SyncTarget } from "../domain/SyncState"
 import { diffSortedSnapshots, type DiffStats, type LineChunks } from "../domain/diffSortedSnapshots"
 
@@ -36,13 +37,27 @@ export type SyncResult = {
 	parseRejects: Record<Entity, number>
 }
 
-export async function runIncrementalSync(deps: SyncDeps): Promise<SyncResult> {
+export type SyncOutcome =
+	| ({ kind: "applied" } & SyncResult)
+	// SUNAT no publicó un padrón nuevo desde el snapshot aplicado: no se descarga nada.
+	| { kind: "unchanged"; resumedSnapshotId: string | null; appliedSnapshotId: string }
+
+export async function runIncrementalSync(deps: SyncDeps): Promise<SyncOutcome> {
 	const initial = await deps.state.read()
 	const resumedSnapshotId = initial.kind === "applying" ? await resume(deps, initial.target) : null
 
+	// Leída antes de descargar. Si SUNAT publica justo entre esta lectura y la descarga,
+	// el snapshot queda con la huella anterior y la próxima corrida lo repite (delta vacío).
+	const sourceVersion = await deps.source.currentVersion()
+	const appliedSnapshotId = await appliedFromSamePublication(deps, sourceVersion)
+	if (appliedSnapshotId) {
+		deps.log(`[sync] el padrón no cambió desde ${appliedSnapshotId}: nada que hacer`)
+		return { kind: "unchanged", resumedSnapshotId, appliedSnapshotId }
+	}
+
 	const snapshotId = snapshotIdFor(deps.now())
 	const prepared = await deps.source.prepare(snapshotId)
-	await deps.store.save(prepared)
+	await deps.store.save(prepared, sourceVersion)
 	deps.log(`[sync] snapshot ${snapshotId} guardado (dni=${prepared.rows.dni} ruc=${prepared.rows.ruc})`)
 
 	const baseline = await chooseBaseline(deps, await deps.state.read())
@@ -53,7 +68,19 @@ export async function runIncrementalSync(deps: SyncDeps): Promise<SyncResult> {
 	await deps.state.complete(target)
 	await prune(deps, target)
 
-	return { resumedSnapshotId, snapshotId, baseline, entities, parseRejects: prepared.parseRejects }
+	return { kind: "applied", resumedSnapshotId, snapshotId, baseline, entities, parseRejects: prepared.parseRejects }
+}
+
+async function appliedFromSamePublication(deps: SyncDeps, current: SourceVersion): Promise<string | null> {
+	if (deps.forceDatabaseBaseline || current.kind === "unknown") {
+		return null
+	}
+	const state = await deps.state.read()
+	if (state.kind !== "idle") {
+		return null
+	}
+	const applied = await deps.store.sourceVersion(state.appliedSnapshotId)
+	return isSamePublication(current, applied) ? state.appliedSnapshotId : null
 }
 
 async function resume(deps: SyncDeps, target: SyncTarget): Promise<string | null> {

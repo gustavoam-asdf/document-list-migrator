@@ -10,6 +10,9 @@ import { fileLineChunks } from "../../stream/fileLineChunks"
 import { KeyOrderTrackingWriter } from "./KeyOrderTrackingWriter"
 import { readLineChunks } from "../../stream/readLineChunks"
 import { curlTransfer } from "../../net/curlTransfer"
+import { curlHead } from "../../net/curlHead"
+import type { SourceVersion } from "../domain/SourceVersion"
+import { errorMessage } from "../../shared/errorMessage"
 
 type Config = {
 	remoteZipUrl: string
@@ -19,6 +22,28 @@ type Config = {
 
 export class SunatSnapshotSource implements SnapshotSource {
 	constructor(private readonly config: Config) {}
+
+	// El ETag del zip (servido por Cloudflare, estable entre nodos). Si el HEAD falla, la
+	// corrida no se salta: se descarga igual.
+	async currentVersion(): Promise<SourceVersion> {
+		try {
+			const headers = await curlHead(this.config.remoteZipUrl, "padrón")
+			const etag = headers.get("etag")?.replace(/^W\//, "")
+			const lastModified = headers.get("last-modified")
+			const length = headers.get("content-length")
+			console.log(`[snapshot] padrón publicado: etag=${etag ?? "-"} last-modified=${lastModified ?? "-"}`)
+			if (etag) {
+				return { kind: "known", tag: etag }
+			}
+			if (lastModified && length) {
+				return { kind: "known", tag: `${lastModified}|${length}` }
+			}
+			return { kind: "unknown" }
+		} catch (error) {
+			console.warn(`[snapshot] no se pudo leer la huella del padrón: ${errorMessage(error)}`)
+			return { kind: "unknown" }
+		}
+	}
 
 	async prepare(id: string): Promise<PreparedSnapshot> {
 		const dir = `${this.config.workDir}/${id}`

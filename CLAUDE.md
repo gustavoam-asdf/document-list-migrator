@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Goals
 
-One-shot **ECS Fargate scheduled job**, **once per day**, that keeps `PersonaNatural` / `PersonaJuridica` in sync with SUNAT's `padron_reducido_ruc.zip` with **incremental, non-disruptive** updates:
+One-shot **ECS Fargate scheduled job**, **every 12 hours** (SUNAT publishes once a day, ~07:40 UTC), that keeps `PersonaNatural` / `PersonaJuridica` in sync with SUNAT's `padron_reducido_ruc.zip` with **incremental, non-disruptive** updates:
 
 - **RDS cost first.** The container runs for a short window; the RDS instance is always on. Do heavy work in the container (download, parse, sort, diff) and send the DB only the rows that changed.
 - **The DB never goes down and reads are not saturated.** No `TRUNCATE`, no DDL on persona tables, no long transactions: just short upsert/delete transactions (`MIGRATOR_SYNC_BATCH_ROWS`, default 20k) that take row locks only, with a write-rate cap (`MIGRATOR_SYNC_MAX_ROWS_PER_SEC`). There is a single DB (the secondary was retired).
@@ -39,17 +39,18 @@ There is no lint configuration.
 
 1. Ping the DB, take a session advisory lock (a second concurrent run exits 0), refresh Ubigeo if due, check that the persona tables have their PK (`ON CONFLICT` needs it).
 2. If `migrator.sync_state` has an unfinished target, **resume it first**: re-diff the same inputs (deterministic) and skip the `migrator.sync_progress` count per stream.
-3. Download the padrón and write `dni.tsv` / `ruc.tsv` in COPY-text format, sorted by key. SUNAT usually ships it sorted by RUC; if not, external `sort` (`LC_ALL=C`).
-4. Upload the snapshot to S3 (`<prefix>/<id>/{dni,ruc}.tsv` + `manifest.json`, written last = complete).
-5. Pick the baseline: the last applied snapshot in S3; otherwise (first run, missing snapshot, unknown state, `MIGRATOR_FORCE_DATABASE_BASELINE=true`) a dump of the DB. The dump is done by `psql \copy` (subprocess, constant memory) over physical block ranges (`ctid`, TID Range Scan, Postgres 14+; `MIGRATOR_BASELINE_PAGE_BLOCKS`), which gives sequential reads. Paging by PK caused random reads and hit the RDS IOPS ceiling. Reads are capped by `MIGRATOR_BASELINE_MAX_ROWS_PER_SEC`, and the container sorts the output.
-6. Diff and apply dni and ruc in parallel, then `complete` (applied = target), prune S3 down to the current snapshot plus the previous one, and set Redis `document-list:update-data-state` = `{isUpdating:false,lastUpdateAt}`. `isUpdating:true` is never written anymore.
+3. `HEAD` the zip (curl, no body) and compare its `ETag` with the `sourceTag` in the applied snapshot's manifest. Same publication → stop (`status: skipped`, `reason: source-unchanged`): no download, no DB writes, Redis untouched. No ETag, HEAD failure, old manifest without `sourceTag`, unfinished state or `MIGRATOR_FORCE_DATABASE_BASELINE=true` → full run.
+4. Download the padrón and write `dni.tsv` / `ruc.tsv` in COPY-text format, sorted by key. SUNAT usually ships it sorted by RUC; if not, external `sort` (`LC_ALL=C`).
+5. Upload the snapshot to S3 (`<prefix>/<id>/{dni,ruc}.tsv` + `manifest.json` with `sourceTag`, written last = complete).
+6. Pick the baseline: the last applied snapshot in S3; otherwise (first run, missing snapshot, unknown state, `MIGRATOR_FORCE_DATABASE_BASELINE=true`) a dump of the DB. The dump is done by `psql \copy` (subprocess, constant memory) over physical block ranges (`ctid`, TID Range Scan, Postgres 14+; `MIGRATOR_BASELINE_PAGE_BLOCKS`), which gives sequential reads. Paging by PK caused random reads and hit the RDS IOPS ceiling. Reads are capped by `MIGRATOR_BASELINE_MAX_ROWS_PER_SEC`, and the container sorts the output.
+7. Diff and apply dni and ruc in parallel, then `complete` (applied = target), prune S3 down to the current snapshot plus the previous one, and set Redis `document-list:update-data-state` = `{isUpdating:false,lastUpdateAt}`. `isUpdating:true` is never written anymore.
 
 Exit codes: 0 ok; 130 interrupted by a signal (progress saved); 1 failure (the next run resumes).
 
 ### Log contract (CloudWatch alarms depend on it)
 
 `src/shared/logEvent.ts` writes single-line JSON to stdout. Metric filters in andape-deploy alert on `{ $.event = "sync_summary" && $.pendingRejects > 0 }` and `{ $.event = "sync_warning" && $.level = "error" }`. **Don't rename `event`, `status`, `pendingRejects`, `rejected` or `level`**: if they change, the alarms stop firing and nobody notices.
-- `sync_summary`: one per run, with `status` ∈ ok|skipped|interrupted|failed.
+- `sync_summary`: one per run, with `status` ∈ ok|skipped|interrupted|failed. `skipped` carries `reason` ∈ locked|source-unchanged (the latter also reports `pendingRejects`).
 - `sync_warning`: non-fatal failures (`component` ∈ ubigeo|s3-prune|lock|unlogged-table).
 
 ### Container memory (Fargate 4 GB)

@@ -40,6 +40,14 @@ function setup(db: InMemoryDatabase, padron: Padron) {
 	return { source, store, deps }
 }
 
+async function runApplied(deps: SyncDeps) {
+	const outcome = await runIncrementalSync(deps)
+	if (outcome.kind !== "applied") {
+		throw new Error(`se esperaba aplicar un snapshot y salió ${outcome.kind}`)
+	}
+	return outcome
+}
+
 function expectDatabaseEquals(db: InMemoryDatabase, padron: Padron) {
 	expect(db.rows("dni")).toEqual([...padron.dni].sort())
 	expect(db.rows("ruc")).toEqual([...padron.ruc].sort())
@@ -51,7 +59,7 @@ describe("runIncrementalSync", () => {
 		const { source, deps } = setup(db, DAY_1)
 		source.today = DAY_2
 
-		const result = await runIncrementalSync(deps())
+		const result = await runApplied(deps())
 
 		expect(result.baseline).toEqual({ kind: "database" })
 		expectDatabaseEquals(db, DAY_2)
@@ -63,11 +71,11 @@ describe("runIncrementalSync", () => {
 	test("día siguiente: usa el snapshot del día anterior y no vuelve a leer la BD", async () => {
 		const db = new InMemoryDatabase()
 		const { source, deps } = setup(db, DAY_1)
-		const first = await runIncrementalSync(deps())
+		const first = await runApplied(deps())
 		const dumpsAfterBootstrap = db.dumps
 		source.today = DAY_2
 
-		const second = await runIncrementalSync(deps())
+		const second = await runApplied(deps())
 
 		expect(second.baseline).toEqual({ kind: "snapshot", snapshotId: first.snapshotId })
 		expect(db.dumps).toBe(dumpsAfterBootstrap)
@@ -77,12 +85,12 @@ describe("runIncrementalSync", () => {
 	test("conserva solo el snapshot aplicado y el anterior", async () => {
 		const db = new InMemoryDatabase()
 		const { source, store, deps } = setup(db, DAY_1)
-		const first = await runIncrementalSync(deps())
+		const first = await runApplied(deps())
 		source.today = DAY_2
-		const second = await runIncrementalSync(deps())
+		const second = await runApplied(deps())
 		source.today = DAY_1
 
-		const third = await runIncrementalSync(deps())
+		const third = await runApplied(deps())
 
 		expect([...store.snapshots.keys()].sort()).toEqual([second.snapshotId, third.snapshotId])
 		expect(store.snapshots.has(first.snapshotId)).toBe(false)
@@ -129,7 +137,7 @@ describe("runIncrementalSync", () => {
 		}
 		const warnings: string[] = []
 
-		const result = await runIncrementalSync(deps({ warn: (component, message) => { warnings.push(`${component}: ${message}`) } }))
+		const result = await runApplied(deps({ warn: (component, message) => { warnings.push(`${component}: ${message}`) } }))
 
 		expect(db.state).toEqual({ kind: "idle", appliedSnapshotId: result.snapshotId })
 		expect(warnings).toEqual(["s3-prune: no se pudieron borrar snapshots viejos: AccessDenied"])
@@ -138,13 +146,71 @@ describe("runIncrementalSync", () => {
 	test("si el snapshot aplicado ya no está en el store, cae al volcado de la BD sin perder datos", async () => {
 		const db = new InMemoryDatabase()
 		const { source, store, deps } = setup(db, DAY_1)
-		const first = await runIncrementalSync(deps())
+		const first = await runApplied(deps())
 		store.snapshots.delete(first.snapshotId)
 		source.today = DAY_2
 
-		const result = await runIncrementalSync(deps())
+		const result = await runApplied(deps())
 
 		expect(result.baseline).toEqual({ kind: "database" })
+		expectDatabaseEquals(db, DAY_2)
+	})
+
+	test("si SUNAT no publicó un padrón nuevo, no descarga ni escribe en la BD", async () => {
+		const db = new InMemoryDatabase()
+		const { source, store, deps } = setup(db, DAY_1)
+		const first = await runApplied(deps())
+		const appliedBefore = db.appliedItems
+
+		const outcome = await runIncrementalSync(deps())
+
+		expect(outcome).toEqual({ kind: "unchanged", resumedSnapshotId: null, appliedSnapshotId: first.snapshotId })
+		expect(source.downloads).toBe(1)
+		expect(db.appliedItems).toBe(appliedBefore)
+		expect([...store.snapshots.keys()]).toEqual([first.snapshotId])
+	})
+
+	test("si no se puede leer la huella del padrón, la corrida se hace completa", async () => {
+		const db = new InMemoryDatabase()
+		const { source, deps } = setup(db, DAY_1)
+		await runApplied(deps())
+		source.versionUnavailable = true
+
+		const outcome = await runIncrementalSync(deps())
+
+		expect(outcome.kind).toBe("applied")
+		expect(source.downloads).toBe(2)
+	})
+
+	test("forzar el baseline contra la BD reconcilia aunque el padrón no haya cambiado", async () => {
+		const db = new InMemoryDatabase()
+		const { deps } = setup(db, DAY_1)
+		await runApplied(deps())
+		db.tables.dni.delete("00000002")
+
+		const result = await runApplied(deps({ forceDatabaseBaseline: true }))
+
+		expect(result.baseline).toEqual({ kind: "database" })
+		expectDatabaseEquals(db, DAY_1)
+	})
+
+	test("un delta a medio aplicar se termina aunque el padrón no haya cambiado", async () => {
+		const db = new InMemoryDatabase()
+		const { source, deps } = setup(db, DAY_1)
+		await runApplied(deps())
+		source.today = DAY_2
+		db.failOnBatch = db.appliedItems + 3
+		await expect(runIncrementalSync(deps())).rejects.toThrow("connection terminated")
+		db.failOnBatch = undefined
+		const pending = db.state
+		if (pending.kind !== "applying") {
+			throw new Error("se esperaba un delta a medio aplicar")
+		}
+		const interrupted = pending.target.snapshotId
+
+		const outcome = await runIncrementalSync(deps())
+
+		expect(outcome).toEqual({ kind: "unchanged", resumedSnapshotId: interrupted, appliedSnapshotId: interrupted })
 		expectDatabaseEquals(db, DAY_2)
 	})
 })

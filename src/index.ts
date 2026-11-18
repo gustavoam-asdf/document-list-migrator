@@ -29,7 +29,7 @@ import { acquireSyncLock } from "./sync/infrastructure/acquireSyncLock"
 import { errorMessage } from "./shared/errorMessage"
 import fs from "node:fs/promises"
 import { redis } from "./redis"
-import { runIncrementalSync, type SyncResult } from "./sync/application/runIncrementalSync"
+import { runIncrementalSync, type SyncOutcome } from "./sync/application/runIncrementalSync"
 import { logEvent } from "./shared/logEvent"
 import { startMemorySampler } from "./shared/startMemorySampler"
 import { RateLimiter } from "./shared/RateLimiter"
@@ -88,8 +88,8 @@ const applier = new PostgresDeltaApplier(primarySql, new RateLimiter(SYNC_MAX_RO
 const state = new PostgresSyncStateRepository(primarySql)
 
 type Outcome =
-	| { kind: "skipped" }
-	| { kind: "ok"; result: SyncResult; pendingRejects: number }
+	| { kind: "locked" }
+	| { kind: "done"; sync: SyncOutcome; pendingRejects: number }
 
 async function main(): Promise<Outcome> {
 	if (!SNAPSHOT_BUCKET || !SNAPSHOT_REGION) {
@@ -102,7 +102,7 @@ async function main(): Promise<Outcome> {
 	const releaseLock = await acquireSyncLock(primarySql)
 	if (!releaseLock) {
 		console.warn("[main] otra corrida tiene el lock de sincronización: no hay nada que hacer")
-		return { kind: "skipped" }
+		return { kind: "locked" }
 	}
 
 	try {
@@ -110,7 +110,7 @@ async function main(): Promise<Outcome> {
 		await verifyUpsertPrerequisites(primarySql)
 		await state.ensureSchema()
 
-		const result = await runIncrementalSync({
+		const sync = await runIncrementalSync({
 			source: new SunatSnapshotSource({ remoteZipUrl: remoteZipFile, workDir: snapshotWorkDir, rejectsDir }),
 			store: new S3SnapshotStore({ bucket: SNAPSHOT_BUCKET, region: SNAPSHOT_REGION, prefix: SNAPSHOT_PREFIX, endpoint: SNAPSHOT_ENDPOINT, cacheDir: snapshotCacheDir }),
 			state,
@@ -127,14 +127,17 @@ async function main(): Promise<Outcome> {
 			warn,
 		})
 
-		const updateState: UpdateDataState = { isUpdating: false, lastUpdateAt: new Date() }
-		await redis.set(stateKey, JSON.stringify(updateState))
+		// `lastUpdateAt` es la fecha de los datos que muestra el api: sin cambios, no se toca.
+		if (sync.kind === "applied" || sync.resumedSnapshotId !== null) {
+			const updateState: UpdateDataState = { isUpdating: false, lastUpdateAt: new Date() }
+			await redis.set(stateKey, JSON.stringify(updateState))
+		}
 
 		await fs.rm(snapshotWorkDir, { recursive: true, force: true })
 		await fs.rm(baselineWorkDir, { recursive: true, force: true })
 		await fs.rm(snapshotCacheDir, { recursive: true, force: true })
 
-		return { kind: "ok", result, pendingRejects: await state.pendingRejects() }
+		return { kind: "done", sync, pendingRejects: await state.pendingRejects() }
 	} finally {
 		await releaseLock().catch(error => warn("lock", `no se pudo liberar el lock: ${errorMessage(error)}`))
 	}
@@ -143,11 +146,23 @@ async function main(): Promise<Outcome> {
 const durationSec = () => Math.round((Date.now() - startTime) / 1000)
 
 function summarize(outcome: Outcome): void {
-	if (outcome.kind === "skipped") {
+	if (outcome.kind === "locked") {
 		logEvent({ event: "sync_summary", status: "skipped", reason: "locked", durationSec: durationSec() })
 		return
 	}
-	const { result, pendingRejects } = outcome
+	const { sync: result, pendingRejects } = outcome
+	if (result.kind === "unchanged") {
+		logEvent({
+			event: "sync_summary",
+			status: "skipped",
+			reason: "source-unchanged",
+			appliedSnapshotId: result.appliedSnapshotId,
+			resumedSnapshotId: result.resumedSnapshotId,
+			pendingRejects,
+			durationSec: durationSec(),
+		})
+		return
+	}
 	const { dni, ruc } = result.entities
 	logEvent({
 		event: "sync_summary",

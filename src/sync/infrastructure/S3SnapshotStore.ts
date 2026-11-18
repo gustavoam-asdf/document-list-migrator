@@ -8,6 +8,15 @@ import type { SnapshotStore } from "../application/SnapshotStore"
 import { fileLineChunks } from "../../stream/fileLineChunks"
 import { curlTransfer } from "../../net/curlTransfer"
 import { resolveAwsCredentials, type AwsCredentials } from "./awsCredentials"
+import type { SourceVersion } from "../domain/SourceVersion"
+
+// Los manifests anteriores a la huella no traen `sourceTag`: cuentan como desconocidos.
+function parseManifestSourceVersion(manifest: unknown): SourceVersion {
+	if (typeof manifest === "object" && manifest !== null && "sourceTag" in manifest && typeof manifest.sourceTag === "string") {
+		return { kind: "known", tag: manifest.sourceTag }
+	}
+	return { kind: "unknown" }
+}
 
 type Config = {
 	bucket: string
@@ -48,15 +57,29 @@ export class S3SnapshotStore implements SnapshotStore {
 		}
 	}
 
-	async save(snapshot: PreparedSnapshot): Promise<void> {
+	async save(snapshot: PreparedSnapshot, sourceVersion: SourceVersion): Promise<void> {
 		const client = await this.#getClient()
 		for (const entity of ENTITIES) {
 			const key = this.#dataKey(snapshot.id, entity)
 			const url = client.presign(key, { method: "PUT", expiresIn: PRESIGN_SECONDS })
 			await curlTransfer({ kind: "upload", url, file: snapshot.files[entity] }, key)
 		}
-		const manifest = { id: snapshot.id, rows: snapshot.rows, savedAt: new Date().toISOString() }
+		const manifest = {
+			id: snapshot.id,
+			rows: snapshot.rows,
+			sourceTag: sourceVersion.kind === "known" ? sourceVersion.tag : null,
+			savedAt: new Date().toISOString(),
+		}
 		await client.write(this.#manifestKey(snapshot.id), JSON.stringify(manifest), { type: "application/json" })
+	}
+
+	async sourceVersion(id: string): Promise<SourceVersion> {
+		const client = await this.#getClient()
+		const manifest = client.file(this.#manifestKey(id))
+		if (!(await manifest.exists())) {
+			return { kind: "unknown" }
+		}
+		return parseManifestSourceVersion(await manifest.json())
 	}
 
 	async pruneExcept(keep: ReadonlySet<string>): Promise<void> {
