@@ -1,5 +1,6 @@
 import type { DeltaStream } from "../domain/Entity"
 import { SyncInterruptedError } from "./SyncInterruptedError"
+import { detachString } from "../../shared/detachString"
 
 type Params = {
 	stream: DeltaStream
@@ -27,7 +28,8 @@ export class ResumableBatcher {
 			this.#skipRemaining--
 			return undefined
 		}
-		this.#buffer.push(item)
+		// Copia: el item es un substring del chunk leído y lo mantendría vivo hasta el flush.
+		this.#buffer.push(detachString(item))
 		if (this.#buffer.length >= this.params.batchSize) {
 			return this.flush()
 		}
